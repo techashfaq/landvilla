@@ -1,0 +1,33 @@
+{
+  "summary": "Retest of all iteration_1 fixes. Backend: 27/27 pytest passed (21 existing + 6 new in test_iteration2_fixes.py). Verified: PATCH of a verified locality with unchanged core fields and only aliases changed stays verified, and a name_en change sets it to pending. Parent loops (A->B then B->A) and self-parenting return 400. Merging an inactive/merged source or into an inactive target returns 404. When the target's parent is the source, the target's parent becomes the source's parent (null), not the target itself. segment=buy returns 400. POST /saved for an unknown id returns 404. There are 20 demo listings, with Buy in Sethi Nagar/Central Ujjain (2) and Buy commercial in Freeganj (1). Frontend at 390x844: subtitle 'Homes, plots & shops across Ujjain'; Buy+Central Ujjain shows 2 cards; Buy+Commercial shows 1; no 'text node' console errors; Hindi toggle works. Admin cards wrap their actions (Deactivate fully inside the card). Deactivate opens a confirmation sheet with a 'Deactivate' button. The merge sheet button reads 'Merge'. Editing aliases on a VERIFIED locality via the UI keeps it VERIFIED. A duplicate create shows a toast above the sheet (topmost element). In the enquiry flow, a 1-letter name shows 'Name must be at least 2 characters', a valid send shows a success toast and closes the sheet, and a duplicate shows the 409 message inline at the top of the sheet plus a toast above the sheet. Regression checks of Saved, Enquiries and Profile passed. No deprecated Expo packages and no unstable-native-tabs import found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Sheet (admin forms, enquiry sheet)", "issues": [
+        "On web, a dimmed strip shows below the sheet footer instead of the sheet sitting flush with the bottom edge. Gap is about 78px on tall sheets (add locality, merge, enquiry) and about 22px on short sheets (deactivate). Cause: Sheet.tsx:28 sets maxHeight '90%' on the inner sheet, and that percentage is taken of the KeyboardAvoidingView, which already has maxHeight 92% (Sheet.tsx:49). A tall sheet therefore stops at 90% of the 92% box, leaving a gap at the bottom. The remaining ~22px gap on short sheets likely comes from KeyboardAvoidingView padding on web. Fix: drop the inner maxHeight (or use flexShrink) so the sheet fills the KAV, and check the KAV's bottom padding when no keyboard is open."
+      ]},
+      {"screen": "Toast", "issues": ["ToastView is mounted both in ToastProvider and inside every open Sheet, so two identical [data-testid=toast-message] nodes exist while a sheet is open. The root one is hidden behind the modal, so this is cosmetic only, but the testID is duplicated. Consider rendering only the sheet copy while a modal is visible."]},
+      {"screen": "Home / Detail", "issues": ["The 'Shop for Sale (Demo)' cover image is a supermarket aisle with stocked shelves. It reads as a grocery store rather than a shop unit for sale. An empty storefront or shopfront photo would fit better (low priority)."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_landvilla_api.py", "/app/backend/tests/test_iteration2_fixes.py", "/app/test_reports/pytest/pytest_results_iter2.xml"],
+  "action_items": [
+    "Sheet.tsx:28/49: make the sheet sit flush with the bottom of the screen. Remove the nested maxHeight '90%' inside the KAV with maxHeight '92%', and check the KAV's bottom padding on web.",
+    "Optional: avoid duplicate toast-message nodes while a Sheet is open.",
+    "Optional: use a more fitting cover image for the commercial 'Shop for Sale' demo listing."
+  ],
+  "critical_code_review_comments": [
+    "admin_create_locality: parent_id existence check does not require is_active, so a new locality can be parented to a merged/inactive locality (minor).",
+    "PATCH parent loop walk caps at 50 hops, which is fine for this dataset."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration2_fixes.py"],
+  "success_rate": {"backend": "100%", "frontend": "100% functional (1 minor layout issue)"},
+  "seed_data_creation": "Temporary TEST* localities created and hard-deleted (32 seeded localities remain). One enquiry by the buyer test user on prop_4f42597832b3 (Agricultural Land demo). Saved toggle reverted.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use the EXPO_PUBLIC_BACKEND_URL key in frontend/.env. Sheets slide in; wait about 1.5s after opening before clicking inside them. Filter the admin list via admin-locality-search to avoid scrolling (clicking the close button after scrolling mid-animation fails). The buyer test user already has enquiries on 9 properties.",
+  "rca_of_issue": ""
+}

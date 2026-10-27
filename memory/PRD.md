@@ -59,3 +59,4 @@ Ujjain-first (Madhya Pradesh) real estate marketplace like Housing.com, expandin
 - Added README, docs/HANDOVER_REPORT.md, WINDOWS_SETUP.md, ANDROID_BUILD_AND_PLAY.md, DATABASE_MIGRATION.md, scripts/windows-setup.ps1,
   backend/scripts/db_export.py + db_verify.py, .env.example files, requirements-local.txt, hardened .gitignore. No app behaviour changed.
 - Pending user actions: Save to GitHub, confirm SEED_* live=false, set Razorpay test keys + webhook, ADMIN_EMAILS, upload key, versionCode bump.
+- Added docs/COMPLETE_SETUP_GUIDE, ENVIRONMENT_VARIABLES, DATABASE_SETUP, ANDROID_RUN_AND_DEBUG, INTEGRATIONS_SETUP, PRODUCTION_DEPLOYMENT, VERIFICATION_CHECKLIST; scripts/check-config.ps1, health-check.ps1; backend/scripts/health_check.py.

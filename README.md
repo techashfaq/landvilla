@@ -3,8 +3,28 @@
 Buyers/tenants search and enquire. Owners and approved brokers post listings. Admins moderate.
 Featured listings are paid through Razorpay.
 
-> Handover documents: `docs/HANDOVER_REPORT.md` (ownership, security, checklist),
-> `docs/WINDOWS_SETUP.md`, `docs/ANDROID_BUILD_AND_PLAY.md`, `docs/DATABASE_MIGRATION.md`.
+## Guides
+| Start here | [docs/COMPLETE_SETUP_GUIDE.md](docs/COMPLETE_SETUP_GUIDE.md): zero to app running on Android |
+|---|---|
+| Config & secrets | [docs/ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md) |
+| Database | [docs/DATABASE_SETUP.md](docs/DATABASE_SETUP.md) · [docs/DATABASE_MIGRATION.md](docs/DATABASE_MIGRATION.md) |
+| Android run/debug | [docs/ANDROID_RUN_AND_DEBUG.md](docs/ANDROID_RUN_AND_DEBUG.md) |
+| Auth, storage, Razorpay | [docs/INTEGRATIONS_SETUP.md](docs/INTEGRATIONS_SETUP.md) |
+| Build APK/AAB & Play | [docs/ANDROID_BUILD_AND_PLAY.md](docs/ANDROID_BUILD_AND_PLAY.md) |
+| Self-hosting | [docs/PRODUCTION_DEPLOYMENT.md](docs/PRODUCTION_DEPLOYMENT.md) |
+| Pass/fail checks | [docs/VERIFICATION_CHECKLIST.md](docs/VERIFICATION_CHECKLIST.md) |
+| Ownership & security | [docs/HANDOVER_REPORT.md](docs/HANDOVER_REPORT.md) · [docs/WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md) |
+
+## Quick start (Windows PowerShell)
+```powershell
+git clone -b dev https://github.com/techashfaq/landvilla.git C:\src\landvilla; cd C:\src\landvilla
+Set-ExecutionPolicy -Scope Process Bypass; .\scripts\windows-setup.ps1      # venv, deps, .env files
+notepad backend\.env; notepad frontend\.env                                  # see ENVIRONMENT_VARIABLES.md
+.\scripts\check-config.ps1
+# window 1:  cd backend; .\.venv\Scripts\activate; uvicorn server:app --host 0.0.0.0 --port 8001 --reload
+# window 2:  .\scripts\health-check.ps1
+# window 3:  cd frontend; yarn start --clear   (press a)
+```
 
 ## 1. Architecture
 

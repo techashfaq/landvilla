@@ -8,9 +8,10 @@ import React, { useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Share, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, fileUrl } from "@/src/api";
+import { api, BACKEND, fileUrl } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { EnquirySheet } from "@/src/components/EnquirySheet";
+import { ReportSheet } from "@/src/components/ReportSheet";
 import { Badge, Button, EmptyState } from "@/src/components/ui";
 import { formatPrice, Property, useMeta, useToggleSave } from "@/src/data";
 import { useLang } from "@/src/i18n";
@@ -29,6 +30,7 @@ export default function PropertyDetail() {
   const toggleSave = useToggleSave();
   const [imgIdx, setImgIdx] = useState(0);
   const [enquiry, setEnquiry] = useState(false);
+  const [report, setReport] = useState(false);
   const q = useQuery({ queryKey: ["property", id, user?.user_id], queryFn: () => api<Property>(`/properties/${id}`) });
   const p = q.data;
   const goBack = () => (router.canGoBack() ? router.back() : router.replace("/"));
@@ -140,6 +142,13 @@ export default function PropertyDetail() {
             <Text style={styles.sectionTitle}>{t("about")}</Text>
             <Text style={styles.desc}>{pick(p, "description")}</Text>
             <Text style={styles.disclaimer} testID="moderation-disclaimer">{tx("Listing moderation by LANDVILLA is not a guarantee of title, ownership, approvals or legal status. Please do your own legal due diligence.", "LANDVILLA द्वारा लिस्टिंग की जाँच, मालिकाना हक़, स्वामित्व, अनुमतियों या कानूनी स्थिति की गारंटी नहीं है। कृपया स्वयं कानूनी जाँच करें।")}</Text>
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 16 }}>
+              <Button label={tx("Report listing", "लिस्टिंग रिपोर्ट करें")} variant="outline" icon="flag-outline" onPress={() => (user ? setReport(true) : router.push("/login"))} testID="report-listing-btn" style={{ flex: 1 }} />
+              {p.locality && (
+                <Button label={tx("Area page", "इलाका पेज")} variant="outline" icon="share-social-outline" testID="share-area-btn" style={{ flex: 1 }}
+                  onPress={() => Share.share({ message: `${pick(p.locality, "name")} – LANDVILLA ${BACKEND}/api/l/ujjain/${p.locality!.slug}` })} />
+              )}
+            </View>
           </View>
         </View>
       </ScrollView>
@@ -163,6 +172,7 @@ export default function PropertyDetail() {
       </BlurView>
 
       <EnquirySheet visible={enquiry} onClose={() => setEnquiry(false)} propertyId={p.id} />
+      <ReportSheet visible={report} onClose={() => setReport(false)} path={`/properties/${p.id}/report`} title={tx("Report this listing", "इस लिस्टिंग की रिपोर्ट करें")} />
     </View>
   );
 }

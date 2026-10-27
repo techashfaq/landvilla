@@ -463,6 +463,9 @@ async def lead_view(e: dict, viewer: dict, prop: Optional[dict]) -> dict:
     out["messages"] = [clean(m) for m in e.get("messages", [])]
     out["property"] = {"id": prop["id"], "title_en": prop["title_en"], "title_hi": prop["title_hi"], "images": prop["images"][:1],
                        "price": prop["price"], "purpose": prop["purpose"]} if prop else None
+    me, other = viewer["user_id"], (e.get("lister_user_id") if viewer["user_id"] == e.get("user_id") else e.get("user_id"))
+    out["blocked_by_me"] = bool(other and await db.blocks.find_one({"blocker_id": me, "blocked_id": other}))
+    out["messaging_blocked"] = bool(other and await db.blocks.find_one({"$or": [{"blocker_id": me, "blocked_id": other}, {"blocker_id": other, "blocked_id": me}]}))
     return out
 
 
@@ -552,6 +555,9 @@ async def post_message(enq_id: str, body: MessageIn, user: dict = Depends(curren
         sender = "lister"
     else:
         raise HTTPException(404, "Enquiry not found")
+    if await db.blocks.find_one({"$or": [{"blocker_id": e.get("user_id"), "blocked_id": e.get("lister_user_id")},
+                                         {"blocker_id": e.get("lister_user_id"), "blocked_id": e.get("user_id")}]}):
+        raise HTTPException(403, "Messaging is blocked for this conversation")
     text = body.text.strip()
     if not text:
         raise HTTPException(400, "Message is empty")
@@ -559,6 +565,8 @@ async def post_message(enq_id: str, body: MessageIn, user: dict = Depends(curren
     upd = {"$push": {"messages": msg}, "$set": {"updated_at": now()}}
     if sender == "lister" and e.get("status") == "new":
         upd["$set"]["status"] = "contacted"
+    if sender == "buyer" and e.get("status") == "closed":
+        upd["$set"]["status"] = "new"  # reopen so the lister notices the new message
     await db.enquiries.update_one({"id": enq_id}, upd)
     return clean(msg)
 
@@ -572,6 +580,8 @@ async def buyer_enquiry(enq_id: str, user: dict = Depends(current_user)):
     out = await lead_view(e, user, prop)
     out["phone"] = e["phone"]  # buyer's own number
     out.pop("notes")  # lister's private notes
+    out.pop("follow_up_at", None)  # lister's private CRM data
+    out["status"] = "closed" if e.get("status") == "closed" else ("replied" if any(m.get("from") == "lister" for m in e.get("messages", [])) else "sent")
     return out
 
 
@@ -592,9 +602,10 @@ async def admin_access_logs(admin: dict = Depends(admin_user)):
 
 # ------------------------------------------------------------------ featured plans + Razorpay
 DEFAULT_PLANS = [
-    {"slug": "featured-30", "name_en": "Featured · 30 days", "name_hi": "फ़ीचर्ड · 30 दिन", "price_inr": 299, "duration_days": 30, "order": 1},
-    {"slug": "featured-45", "name_en": "Featured · 45 days", "name_hi": "फ़ीचर्ड · 45 दिन", "price_inr": 499, "duration_days": 45, "order": 2},
+    {"slug": "featured-15d-299", "name_en": "Featured · 15 days", "name_hi": "फ़ीचर्ड · 15 दिन", "price_inr": 299, "duration_days": 15, "order": 1},
+    {"slug": "featured-30d-499", "name_en": "Featured · 30 days", "name_hi": "फ़ीचर्ड · 30 दिन", "price_inr": 499, "duration_days": 30, "order": 2},
 ]
+LEGACY_PLAN_SLUGS = ["featured-30", "featured-45"]
 
 
 async def seed_marketplace():
@@ -609,6 +620,8 @@ async def seed_marketplace():
     await db.properties.create_index("photo_hashes")
     for p in DEFAULT_PLANS:
         await db.featured_plans.update_one({"slug": p["slug"]}, {"$setOnInsert": {**p, "id": uid("plan"), "is_active": True, "created_at": now()}}, upsert=True)
+    # Retire the earlier seeded plans unless an admin has edited them.
+    await db.featured_plans.update_many({"slug": {"$in": LEGACY_PLAN_SLUGS}, "updated_at": {"$exists": False}}, {"$set": {"is_active": False}})
     await db.app_settings.update_one({"key": "commission"}, {"$setOnInsert": {"key": "commission", "default_rate_percent": 1.0,
                                      "auto_charge": False, "requires_written_agreement": True, "updated_at": now()}}, upsert=True)
 
@@ -642,7 +655,10 @@ class OrderIn(BaseModel):
 
 
 @router.post("/payments/featured/order")
-async def create_featured_order(body: OrderIn, user: dict = Depends(current_user)):
+async def create_featured_order(body: OrderIn, request: Request, user: dict = Depends(current_user)):
+    # Store policy: Featured is not sold inside the Android/iOS store apps (web only) until compliant billing is approved.
+    if request.headers.get("x-lv-client", "").lower() != "web":
+        raise HTTPException(403, "Featured purchases are available on the web only")
     kid, secret = rzp_keys()
     p = await db.properties.find_one({"id": body.property_id, "owner_user_id": user["user_id"]}, {"_id": 0})
     if not p:
@@ -715,6 +731,9 @@ async def verify_featured(body: VerifyPayIn, user: dict = Depends(current_user))
     if pay.get("order_id") != order["razorpay_order_id"] or int(pay.get("amount", 0)) != order["amount"] or pay.get("currency") != "INR":
         raise HTTPException(400, "Payment does not match order")
     if pay.get("status") not in ("captured", "authorized"):
+        if pay.get("status") == "failed":
+            await db.payment_orders.update_one({"id": order["id"], "status": {"$ne": "paid"}}, {"$set": {"status": "failed", "failure_reason": pay.get("error_description"), "updated_at": now()}})
+            raise HTTPException(400, "Payment failed")
         await db.payment_orders.update_one({"id": order["id"], "status": {"$ne": "paid"}}, {"$set": {"status": "pending", "updated_at": now()}})
         return pay_view(await db.payment_orders.find_one({"id": order["id"]}, {"_id": 0}))
     return pay_view(await fulfil(order, body.razorpay_payment_id, "checkout"))

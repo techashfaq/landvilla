@@ -207,6 +207,11 @@ export default function ListingForm() {
               ? tx("I declare I am authorised by the owner to list this property and the details are true.", "मैं घोषणा करता/करती हूँ कि मुझे मालिक ने यह प्रॉपर्टी लिस्ट करने का अधिकार दिया है और विवरण सही हैं।")
               : tx("I declare I am the owner (or legally authorised) and the details are true.", "मैं घोषणा करता/करती हूँ कि मैं मालिक (या कानूनी रूप से अधिकृत) हूँ और विवरण सही हैं।")} />
           <Text style={styles.disclaimer}>{tx("LANDVILLA reviews listings for quality, but this is not a check of title, ownership, approvals or legal status.", "LANDVILLA गुणवत्ता के लिए लिस्टिंग जाँचता है, पर यह मालिकाना हक़, स्वामित्व, अनुमतियों या कानूनी स्थिति की जाँच नहीं है।")}</Text>
+          <Text style={styles.disclaimer}>
+            <Text style={{ color: colors.brandPrimary }} onPress={() => router.push("/legal/terms")} testID="form-terms-link">{tx("Terms", "नियम")}</Text>
+            {"  ·  "}
+            <Text style={{ color: colors.brandPrimary }} onPress={() => router.push("/legal/privacy")} testID="form-privacy-link">{tx("Privacy Policy", "गोपनीयता नीति")}</Text>
+          </Text>
         </View>
         {!!formErr && <Text style={styles.formErr} testID="form-error">{formErr}</Text>}
         <Button label={id ? tx("Resubmit for review", "फिर से समीक्षा हेतु भेजें") : tx("Submit for review", "समीक्षा हेतु भेजें")} onPress={submit} loading={m.isPending} testID="form-submit-btn" style={{ marginTop: 16 }} />

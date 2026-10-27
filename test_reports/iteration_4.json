@@ -1,0 +1,38 @@
+{
+  "summary": "Retested every iteration_3 fix through the public URL. All 6 requested fixes work in both backend and UI. Backend regression run per file with -n 0: 62/62 passed (test_extras 6, iteration2 6, iteration3 10, iteration4 8, iteration5 6 (new), landvilla_api 15, marketplace 5, seed 6). UI checks at 390x844: (1) The buyer enquiry badge shows Sent, then stays Sent after the lister sets follow_up, then shows Replied, then Closed. follow_up_at and notes are not in the buyer payload. (2) In admin /admin/reports, 'Mark completed' and 'Reject' each remove a card (3, then 2, then 1) and show the 'Request updated' toast. A second close of the same request returns 404, and non-admins get 403. (3) The 3rd delete-account request for the same email (case-insensitive) returns 'Request already received', and only 2 are stored. (4) The resolve sheet shows 'Note: String should have at least 3 characters', and the report badge reads 'wrong info'. (5) Block shows Block, then 'Tap to confirm', then Unblock with a toast. When a blocked buyer sends a message, the composer is hidden and thread-blocked-notice appears. (6) The featured order without the header returns 403 with the exact message, X-LV-Client: android also returns 403, and web returns 503. All web fetches carry X-LV-Client: web. The UI order call itself was not reached because the feature screen shows 'payments-not-configured' first. Home, property detail, Saved and Profile load with no console errors. No deprecated Expo packages were found in the files checked.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/enquiries/{id}/messages", "issue": "A buyer can still message a lead after the lister closed it (200), and the status stays 'closed'. The lister may never see the new message. Consider reopening the lead (set it to 'new'/'contacted') or flagging unread messages."},
+      {"endpoint": "POST /api/payments/featured/order", "issue": "The web-only gate trusts a client header that anyone can set. This meets the store-policy goal (the native app never sends 'web'), but it is not a security control. Server-side checks (listing ownership/active, signature verify) remain the real guard, and they are in place."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Thread / SafetyActions", "issue": "Blocked state is held only in local component state. After a reload, a blocked buyer sees the composer again, and the notice only returns after another failed send. The lister's button shows 'Block' again after a reload even though the block is active. Return is_blocked/blocked_by_me from GET /enquiries/{id} and /leads/{id}, and initialise from it.", "testID": "thread-blocked-notice, safety-block-btn", "priority": "LOW"},
+      {"component": "admin/reports deletion actions", "issue": "'Mark completed'/'Reject' run on a single tap with no confirmation and a hardcoded note. The buttons are not disabled while the mutation is pending, so a double tap gives a 404 error toast.", "testID": "deletion-complete-*, deletion-reject-*", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration5_playstore_fixes.py", "/app/backend/tests/ui_seed_iter5.py", "/app/test_reports/pytest/iteration5_fixes.xml"],
+  "action_items": [
+    "Optional: expose block state in the GET enquiry/lead responses so the composer, notice and Block/Unblock label survive a reload.",
+    "Optional: reopen or flag a closed lead when the buyer sends a new message.",
+    "Optional: disable the deletion-request buttons while the request is pending, and add a confirm step.",
+    "Still open from iteration 3: marketplace.py is over 700 lines; split it into modules.",
+    "test_iteration4_public_e2e.py leaves test_del_* deletion requests in the DB. Add deletion_requests cleanup (iteration 5 cleans its own data)."
+  ],
+  "critical_code_review_comments": [
+    "In buyer_enquiry, the buyer status is derived from the lister's messages and the closed state. It is correct, and the lister CRM status is unchanged in /leads.",
+    "The delete-account rate limit is 2 per email per 24h plus 100 per hour globally. The global cap could let an attacker block real users for an hour; a per-IP limit would be better.",
+    "api.ts maps the Pydantic loc to field names correctly. Only the last loc segment is used, which is fine for flat bodies."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration5_playstore_fixes.py", "/app/backend/tests/ui_seed_iter5.py"],
+  "success_rate": {"backend": "100% (62/62)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "The UI seed (tests/ui_seed_iter5.py) created a temporary owner listing, an enquiry, a report and deletion requests. All were removed with 'cleanup'. Leftover test_* deletion requests were also deleted. Seeded test users were not touched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the backend per file with -n 0. The iteration 5 test imports helpers from test_iteration4_public_e2e. A buyer can send only one enquiry per property per 24h (409), so reuse the enquiry. Python urllib calls from inside browser_automation get 403 from the ingress, so make API side-calls from bash curl. On web, set localStorage auth_token, then goto. The feature screen shows payments-not-configured without calling the order endpoint, so verify the header by sniffing requests."
+}

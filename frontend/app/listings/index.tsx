@@ -10,7 +10,7 @@ import { api, fileUrl } from "@/src/api";
 import { Badge, Button, EmptyState, ScreenHeader } from "@/src/components/ui";
 import { formatPrice } from "@/src/data";
 import { useLang } from "@/src/i18n";
-import { LISTING_STATUS } from "@/src/lister";
+import { FEATURED_PURCHASE_ALLOWED, LISTING_STATUS } from "@/src/lister";
 import { fonts, makeStyles, useTheme } from "@/src/theme";
 
 export default function MyListings() {
@@ -20,6 +20,9 @@ export default function MyListings() {
   const { tx, pick, lang } = useLang();
   const router = useRouter();
   const q = useQuery({ queryKey: ["my-listings"], queryFn: () => api<{ items: any[] }>("/listings/mine") });
+  const plans = useQuery({ queryKey: ["featured-plans"], queryFn: () => api<{ payments_configured: boolean }>("/featured-plans") });
+  // Store policy: paid in-app promotion is not sold inside the Android/iOS apps until a compliant billing approach is approved.
+  const canBuyFeatured = FEATURED_PURCHASE_ALLOWED && !!plans.data?.payments_configured;
 
   return (
     <View style={styles.screen}>
@@ -63,7 +66,7 @@ export default function MyListings() {
                   {p.listing_status !== "sold_rented" && (
                     <Button label={tx("Edit", "बदलें")} variant="outline" icon="create-outline" onPress={() => router.push(`/post/form?id=${p.id}`)} testID={`edit-listing-${p.id}`} style={{ flex: 1 }} />
                   )}
-                  {p.listing_status === "active" && (
+                  {p.listing_status === "active" && canBuyFeatured && (
                     <Button label={featuredActive ? tx("Extend", "बढ़ाएं") : tx("Feature", "फ़ीचर करें")} icon="star-outline" onPress={() => router.push(`/feature/${p.id}`)} testID={`feature-listing-${p.id}`} style={{ flex: 1 }} />
                   )}
                 </View>

@@ -103,8 +103,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setApiToken(token);
           try {
             setUser(await api<User>("/auth/me"));
-          } catch {
-            await clear();
+          } catch (e: any) {
+            // Only a real 401 signs the user out; offline/network errors keep the saved session.
+            if (e?.status === 401) await clear();
           }
         }
       } finally {

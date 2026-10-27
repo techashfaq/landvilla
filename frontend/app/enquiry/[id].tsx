@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
@@ -6,11 +6,12 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
+import { SafetyActions } from "@/src/components/SafetyActions";
 import { Thread } from "@/src/components/Thread";
 import { Badge, EmptyState, ScreenHeader } from "@/src/components/ui";
 import { formatPrice } from "@/src/data";
 import { useLang } from "@/src/i18n";
-import { LEAD_STATUS } from "@/src/lister";
+
 import { fonts, makeStyles, useTheme } from "@/src/theme";
 
 export default function BuyerEnquiry() {
@@ -21,6 +22,7 @@ export default function BuyerEnquiry() {
   const { tx, pick, lang } = useLang();
   const router = useRouter();
   const key = ["enquiry", id];
+  const qc = useQueryClient();
   const q = useQuery({ queryKey: key, queryFn: () => api<any>(`/enquiries/${id}`) });
   const e = q.data;
   const back = () => (router.canGoBack() ? router.back() : router.replace("/enquiries"));
@@ -40,7 +42,7 @@ export default function BuyerEnquiry() {
         )}
         <View style={styles.card}>
           <View style={{ flexDirection: "row", gap: 6 }}>
-            <Badge label={tx(LEAD_STATUS[e.status]?.en ?? e.status, LEAD_STATUS[e.status]?.hi ?? e.status)} kind="muted" testID="enquiry-status" />
+            <Badge label={e.status === "replied" ? tx("Replied", "जवाब मिला") : e.status === "closed" ? tx("Closed", "बंद") : tx("Sent", "भेजी गई")} kind={e.status === "replied" ? "verified" : "muted"} testID="enquiry-status" />
           </View>
           <Text style={styles.small} testID="enquiry-consent-state">
             {e.share_phone_consent
@@ -49,8 +51,9 @@ export default function BuyerEnquiry() {
           </Text>
         </View>
         <View style={styles.card}>
-          <Thread enquiryId={e.id} messages={e.messages ?? []} me="buyer" queryKey={key} />
+          <Thread enquiryId={e.id} messages={e.messages ?? []} me="buyer" queryKey={key} blocked={e.messaging_blocked} />
         </View>
+        <SafetyActions enquiryId={e.id} initialBlocked={e.blocked_by_me} onChanged={() => qc.invalidateQueries({ queryKey: key })} />
       </KeyboardAwareScrollView>
     </View>
   );

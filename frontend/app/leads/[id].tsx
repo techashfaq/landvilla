@@ -7,6 +7,7 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
+import { SafetyActions } from "@/src/components/SafetyActions";
 import { Thread } from "@/src/components/Thread";
 import { useToast } from "@/src/components/Toast";
 import { Button, Chip, EmptyState, ScreenHeader } from "@/src/components/ui";
@@ -102,8 +103,9 @@ export default function LeadDetail() {
         </View>
 
         <View style={styles.card}>
-          <Thread enquiryId={l.id} messages={l.messages ?? []} me="lister" queryKey={key} />
+          <Thread enquiryId={l.id} messages={l.messages ?? []} me="lister" queryKey={key} blocked={l.messaging_blocked} />
         </View>
+        <SafetyActions enquiryId={l.id} initialBlocked={l.blocked_by_me} onChanged={() => qc.invalidateQueries({ queryKey: key })} />
       </KeyboardAwareScrollView>
     </View>
   );

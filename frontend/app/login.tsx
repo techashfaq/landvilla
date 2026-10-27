@@ -13,7 +13,7 @@ export default function Login() {
   const insets = useSafeAreaInsets();
   const styles = useStyles();
   const { colors } = useTheme();
-  const { t } = useLang();
+  const { t, tx } = useLang();
   const { user, login, signingIn, error } = useAuth();
   const router = useRouter();
 
@@ -40,6 +40,13 @@ export default function Login() {
       </View>
       {error && <Text style={styles.err} testID="login-error">{error}</Text>}
       <Button label={t("continueGoogle")} icon="logo-google" onPress={login} loading={signingIn} testID="google-login-btn" />
+      <Text style={styles.legal}>
+        {tx("By continuing you agree to the ", "जारी रखकर आप ")}
+        <Text style={styles.link} onPress={() => router.push("/legal/terms")} testID="login-terms-link">{tx("Terms", "नियम")}</Text>
+        {tx(" and ", " और ")}
+        <Text style={styles.link} onPress={() => router.push("/legal/privacy")} testID="login-privacy-link">{tx("Privacy Policy", "गोपनीयता नीति")}</Text>
+        {tx(".", " से सहमत हैं।")}
+      </Text>
     </View>
   );
 }
@@ -53,4 +60,6 @@ const useStyles = makeStyles((c) => ({
   title: { fontFamily: fonts.display, fontSize: 30, color: c.onSurface, lineHeight: 38 },
   sub: { fontFamily: fonts.text, fontSize: 16, color: c.muted, lineHeight: 24 },
   err: { color: c.error, fontFamily: fonts.textMedium, marginBottom: 12 },
+  legal: { fontFamily: fonts.text, fontSize: 12, color: c.muted, textAlign: "center", marginTop: 12, lineHeight: 18 },
+  link: { color: c.brandPrimary, fontFamily: fonts.textSemi },
 }));

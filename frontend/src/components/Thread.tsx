@@ -1,6 +1,6 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import { useQueryClient } from "@tanstack/react-query";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 
 import { api } from "@/src/api";
@@ -11,7 +11,7 @@ import { fonts, makeStyles, useTheme } from "@/src/theme";
 export type Msg = { id: string; from: "buyer" | "lister"; text: string; at: string };
 
 /** In-app message thread between buyer and lister. `me` is the viewer's side. */
-export function Thread({ enquiryId, messages, me, queryKey }: { enquiryId: string; messages: Msg[]; me: "buyer" | "lister"; queryKey: any[] }) {
+export function Thread({ enquiryId, messages, me, queryKey, blocked = false }: { enquiryId: string; messages: Msg[]; me: "buyer" | "lister"; queryKey: any[]; blocked?: boolean }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { tx, lang } = useLang();
@@ -19,6 +19,10 @@ export function Thread({ enquiryId, messages, me, queryKey }: { enquiryId: strin
   const qc = useQueryClient();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [blockedMsg, setBlockedMsg] = useState("");
+  useEffect(() => {
+    if (!blocked) setBlockedMsg("");
+  }, [blocked]);
 
   const send = async () => {
     if (!text.trim()) return;
@@ -28,7 +32,8 @@ export function Thread({ enquiryId, messages, me, queryKey }: { enquiryId: strin
       setText("");
       qc.invalidateQueries({ queryKey });
     } catch (e: any) {
-      toast.show(e.message, "error");
+      if (e.status === 403) setBlockedMsg(e.message);
+      else toast.show(e.message, "error");
     } finally {
       setSending(false);
     }
@@ -46,12 +51,16 @@ export function Thread({ enquiryId, messages, me, queryKey }: { enquiryId: strin
           </Text>
         </View>
       ))}
+      {blockedMsg || blocked ? (
+        <Text style={styles.empty} testID="thread-blocked-notice">{tx("Messaging is not available in this conversation.", "इस बातचीत में संदेश उपलब्ध नहीं है।")}</Text>
+      ) : (
       <View style={styles.composer}>
         <TextInput testID="thread-input" value={text} onChangeText={setText} placeholder={tx("Write a message…", "संदेश लिखें…")} placeholderTextColor={colors.muted} style={styles.input} multiline maxLength={1000} />
         <Pressable testID="thread-send-btn" onPress={send} disabled={sending || !text.trim()} style={[styles.send, (!text.trim() || sending) && { opacity: 0.5 }]}>
           <Ionicons name="send" size={18} color={colors.onBrandPrimary} />
         </Pressable>
       </View>
+      )}
     </View>
   );
 }

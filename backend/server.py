@@ -75,10 +75,17 @@ async def current_user_optional(request: Request) -> Optional[dict]:
     token = auth[7:].strip()
     if not token:
         return None
+    # Dev test tokens are never valid unless test sessions are explicitly enabled for this environment.
+    if token.startswith("test_session_") and not SEED_TEST_SESSIONS:
+        return None
     sess = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
     if not sess or aware(sess["expires_at"]) < now():
         return None
     user = await db.users.find_one({"user_id": sess["user_id"]}, {"_id": 0})
+    if user and user.get("suspended"):
+        return None
+    if user:
+        user["_session_created_at"] = aware(sess.get("created_at"))
     return user
 
 
@@ -352,6 +359,9 @@ async def create_enquiry(body: EnquiryIn, user: dict = Depends(current_user)):
         raise HTTPException(404, "Property not found")
     if p.get("owner_user_id") == user["user_id"]:
         raise HTTPException(400, "You cannot enquire on your own listing")
+    if p.get("owner_user_id") and await db.blocks.find_one({"$or": [{"blocker_id": user["user_id"], "blocked_id": p["owner_user_id"]},
+                                                                     {"blocker_id": p["owner_user_id"], "blocked_id": user["user_id"]}]}):
+        raise HTTPException(403, "You can't contact this lister")
     recent = await db.enquiries.find_one({"user_id": user["user_id"], "property_id": body.property_id,
                                           "created_at": {"$gte": now() - timedelta(hours=24)}})
     if recent:
@@ -577,9 +587,11 @@ async def root():
 
 
 import marketplace  # noqa: E402  (needs the helpers above)
+import extras  # noqa: E402
 
 app.include_router(api)
 app.include_router(marketplace.router)
+app.include_router(extras.router)
 app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -601,6 +613,16 @@ async def startup():
     await marketplace.seed_marketplace()
     if SEED_TEST_SESSIONS:
         await seed_test_sessions()
+    else:
+        # Production safety: remove any dev test accounts/sessions if they exist.
+        test_ids = ["user_testbuyer01", "user_testadmin01", "user_testowner01", "user_testbroker01"]
+        await db.user_sessions.delete_many({"$or": [{"user_id": {"$in": test_ids}}, {"session_token": {"$regex": "^test_session_"}}]})
+        await db.users.delete_many({"user_id": {"$in": test_ids}})
+    # Demo listings are only visible when SEED_DEMO_LISTINGS=true.
+    if SEED_DEMO:
+        await db.properties.update_many({"is_demo": True, "listing_status": "demo_hidden"}, {"$set": {"listing_status": "active"}})
+    else:
+        await db.properties.update_many({"is_demo": True, "listing_status": "active"}, {"$set": {"listing_status": "demo_hidden", "featured": False}})
 
 
 @app.on_event("shutdown")

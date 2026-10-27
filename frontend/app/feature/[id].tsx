@@ -6,6 +6,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-nati
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
+import { FEATURED_PURCHASE_ALLOWED } from "@/src/lister";
 import { RazorpayCheckout, RzpOrder, RzpSuccess } from "@/src/components/RazorpayCheckout";
 import { useToast } from "@/src/components/Toast";
 import { Badge, Button, ScreenHeader } from "@/src/components/ui";
@@ -81,7 +82,9 @@ export default function FeatureListing() {
               <Text style={styles.resultText}>{result.text}</Text>
             </View>
           )}
-          {!plans.data?.payments_configured ? (
+          {!FEATURED_PURCHASE_ALLOWED ? (
+            <Text style={styles.err} testID="featured-not-available-in-app">{tx("Featured purchases are not available in the mobile app yet.", "फ़ीचर्ड खरीदारी अभी मोबाइल ऐप में उपलब्ध नहीं है।")}</Text>
+          ) : !plans.data?.payments_configured ? (
             <Text style={styles.err} testID="payments-not-configured">{tx("Payments are not configured yet. Please try later.", "भुगतान अभी कॉन्फ़िगर नहीं है। कृपया बाद में प्रयास करें।")}</Text>
           ) : result?.kind === "success" ? (
             <Button label={tx("Back to my listings", "मेरी लिस्टिंग पर जाएं")} onPress={() => router.replace("/listings")} testID="payment-done-btn" />

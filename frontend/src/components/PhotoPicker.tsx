@@ -2,7 +2,7 @@ import { Ionicons } from "@react-native-vector-icons/ionicons";
 import * as ImagePicker from "expo-image-picker";
 import { Image } from "expo-image";
 import React, { useState } from "react";
-import { ActivityIndicator, Linking, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Platform, Pressable, Text, View } from "react-native";
 
 import { API_BASE, fileUrl, getApiToken } from "@/src/api";
 import { useToast } from "@/src/components/Toast";
@@ -40,7 +40,8 @@ export function PhotoPicker({ photos, onChange, max = 10 }: { photos: Photo[]; o
   const [blocked, setBlocked] = useState(false);
 
   const pick = async () => {
-    const perm = await ImagePicker.getMediaLibraryPermissionsAsync();
+    // Android uses the system Photo Picker, which needs no media permission.
+    const perm = Platform.OS === "android" ? { granted: true, canAskAgain: true, status: "granted" } : await ImagePicker.getMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       if (!perm.canAskAgain && perm.status === "denied") {
         setBlocked(true);

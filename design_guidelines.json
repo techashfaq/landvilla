@@ -1,0 +1,188 @@
+{
+  "app_name": "LANDVILLA",
+  "personality": "1 iOS-Native Clean",
+  "personality_one_liner": "Trustworthy, breathable, and heavily reliant on structural whitespace to let high-quality property photos shine, anchored by warm brick-terracotta accents.",
+  "color": {
+    "surface": "#FFFFFF",
+    "onSurface": "#1C1917",
+    "surfaceSecondary": "#F8F6F4",
+    "onSurfaceSecondary": "#292524",
+    "surfaceTertiary": "#EAE8E3",
+    "onSurfaceTertiary": "#44403C",
+    "surfaceInverse": "#292524",
+    "onSurfaceInverse": "#FFFFFF",
+    "brand": "#D15B40",
+    "brandPrimary": "#D15B40",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#B54D35",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#F9EBE8",
+    "onBrandTertiary": "#923420",
+    "success": "#367A59",
+    "onSuccess": "#FFFFFF",
+    "warning": "#CF7D25",
+    "onWarning": "#FFFFFF",
+    "error": "#B63B3B",
+    "onError": "#FFFFFF",
+    "info": "#4A6C7D",
+    "onInfo": "#FFFFFF",
+    "border": "#E5E2DB",
+    "borderStrong": "#CFCAC0",
+    "divider": "#F0EDEB",
+    "muted": "#78716C",
+    "onBrand": "#FFFFFF"
+  },
+  "typography": {
+    "displayFontFamily": "Mukta",
+    "textFontFamily": "Hind",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Maintain generous vertical breathing room. Cards and list items should feel comfortably padded (md or lg), never crammed. Rely on margins and structural padding, not harsh borders.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "1",
+  "navigation": "bottom_tabs",
+  "icon_set": "Ionicons",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": [
+      "Use glass effect on the bottom tab bar where the property feed scrolls behind it.",
+      "Use glass effect on the fixed bottom CTA container in the property details screen.",
+      "Use glass overlay for Floating Action Buttons (FAB) and top header in details screen."
+    ],
+    "dont's": [
+      "Do not use glass for property cards in the main feed.",
+      "Avoid glass over text-heavy sections or map overlays that require high readability."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Home",
+      "purpose": "Serve as the primary discovery feed with easy access to filters, localities, and prominent property cards.",
+      "layout": "Sticky header with search bar (invokes bottom sheet). A horizontal scroll section for category chips (Buy, Rent, Plot, Commercial). Below that, a horizontal section for 'Top Localities'. The rest of the screen is a vertical feed of edge-to-edge or comfortably padded property cards (large hero image, floating terracotta price tag, compact tracked-out spec row for Beds/Baths/SqFt, and clear 'Verified' or 'Demo' badges).",
+      "states": {
+        "loading": "Skeleton UI for property cards and locality chips.",
+        "empty": "Illustration of an empty house/plot with text 'No properties found for these filters' and a 'Clear Filters' primary CTA.",
+        "error": "Message indicating connection failure with a 'Retry' button."
+      }
+    },
+    {
+      "name": "SearchFiltersSheet",
+      "purpose": "Allow users to refine property searches quickly without leaving the context of the feed.",
+      "layout": "A bottom sheet popping over the Home screen. Contains pill toggles for Property Type (Buy/Rent, etc.), a slider for Budget, and segmented controls for BHK. Sticky primary 'Apply Filters' CTA at the bottom.",
+      "states": {
+        "loading": "N/A - Opens instantly with local state.",
+        "empty": "N/A",
+        "error": "N/A"
+      }
+    },
+    {
+      "name": "PropertyDetails",
+      "purpose": "Provide comprehensive property info, storytelling imagery, and a persistent lead capture action.",
+      "layout": "Parallax image gallery at the top with a pill page-indicator. Overlay glass header with back and share/save buttons. Below image: primary stats (Price, BHK, Area) and badges. Use progressive disclosure: scroll down to reveal a 4-column Amenities icon grid, a Map/Location snippet, and 'Demo' labeling if active. Crucially, a fixed glass bottom bar with a prominent 'Enquire Now' CTA button.",
+      "states": {
+        "loading": "Centered spinner over the layout.",
+        "empty": "Text indicating the property is no longer available, with a CTA to return to Home.",
+        "error": "Error loading property details, with 'Retry' button."
+      }
+    },
+    {
+      "name": "EnquiryFormSheet",
+      "purpose": "Capture user intent directly from the details screen.",
+      "layout": "Bottom sheet invoked from Property Details CTA. Simple form (Name, Phone Number, Optional Message) with labels placed above inputs. Sticky 'Send Enquiry' CTA at the bottom inside a KeyboardAvoidingView.",
+      "states": {
+        "loading": "Spinner on the CTA button while submitting.",
+        "empty": "N/A",
+        "error": "Inline error messages for failed form submission."
+      }
+    },
+    {
+      "name": "Saved",
+      "purpose": "A quick-access list of bookmarked properties.",
+      "layout": "Standard vertical list or 2-column grid of simplified property cards. Header titled 'Saved'.",
+      "states": {
+        "loading": "Skeleton list.",
+        "empty": "Illustration of a bookmark with 'No saved properties yet' and CTA 'Explore Properties'.",
+        "error": "Retry loading state."
+      }
+    },
+    {
+      "name": "MyEnquiries",
+      "purpose": "Track sent leads and their status.",
+      "layout": "Vertical list of cards showing the property snippet, date enquired, and a status pill (e.g., Pending, Contacted).",
+      "states": {
+        "loading": "Skeleton list.",
+        "empty": "Illustration with 'You haven't sent any enquiries yet' and CTA 'Browse Homes'.",
+        "error": "Retry loading state."
+      }
+    },
+    {
+      "name": "Profile",
+      "purpose": "Manage user account, preferences, and language selection.",
+      "layout": "List-based layout. Shows user info/Google login button at the top. Below, standard rows for settings, including a segmented control for Language Toggle (English / हिंदी) taking effect globally.",
+      "states": {
+        "loading": "Spinner over profile picture area.",
+        "empty": "Guest state showing a prominent 'Login with Google' card.",
+        "error": "Failed to load profile data, Retry button."
+      }
+    }
+  ],
+  "images": {
+    "hero_villa_1": {
+      "url": "https://images.unsplash.com/photo-1628012209120-d9db7abf7eab?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDR8MHwxfHNlYXJjaHwyfHxtb2Rlcm4lMjBob3VzZSUyMHZpbGxhJTIwZXh0ZXJpb3IlMjBleHRlcmlvciUyMGFyY2hpdGVjdHVyZXxlbnwwfHx8fDE3OTMwMjQ0NjZ8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Modern white concrete villa under blue sky"
+    },
+    "hero_villa_2": {
+      "url": "https://images.unsplash.com/photo-1722421492323-eaf9c401befe?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDR8MHwxfHNlYXJjaHwzfHxtb2Rlcm4lMjBob3VzZSUyMHZpbGxhJTIwZXh0ZXJpb3IlMjBleHRlcmlvciUyMGFyY2hpdGVjdHVyZXxlbnwwfHx8fDE3OTMwMjQ0NjZ8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Modern three-story house with stone cladding"
+    },
+    "hero_plot": {
+      "url": "https://images.unsplash.com/photo-1495107334309-fcf20504a5ab?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzl8MHwxfHNlYXJjaHwxfHxncmVlbiUyMGZpZWxkJTIwbGFuZHxlbnwwfHx8fDE3OTMwMjQ0NzB8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Expansive green field land"
+    },
+    "interior_shot": {
+      "url": "https://images.unsplash.com/photo-1564078516393-cf04bd966897?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MTJ8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBsaXZpbmclMjByb29tJTIwaW50ZXJpb3J8ZW58MHx8fHwxNzkzMDI0NDY1fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Modern living room interior with tall windows"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Implement the '1 iOS-Native Clean' personality with a primary terracotta-brick color to establish a sense of property, earth, and trust, actively avoiding all blues and purples.",
+    "Bilingual support is critical: Load both 'Mukta' (Display) and 'Hind' (Text) via expo-font to ensure high-quality Devanagari rendering alongside English.",
+    "Implement the Home screen with 'Architectural Daylight' principles: white backgrounds, dark text, and high-impact property images in edge-to-edge or comfortably padded cards.",
+    "Include clear 'Verified' badges (using the success color) and 'Demo' labels (using warning/info color) layered on top of the property image cards. Use a top-down vertical gradient scrim on images for readability.",
+    "Build the Property Details screen using progressive disclosure: start with the hero gallery and core stats, then follow with an Amenities 4-column matrix, location, and the sticky 'Enquire Now' CTA anchored at the bottom (wrapped in a glass container if content scrolls behind).",
+    "Use @gorhom/bottom-sheet for both the 'Search Filters' and 'Enquiry Form' to maintain contextual flow without jarring page transitions.",
+    "Integrate Google login strictly as requested for the profile flow."
+  ]
+}

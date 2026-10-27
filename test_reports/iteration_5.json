@@ -1,0 +1,41 @@
+{
+  "summary": "Retest of the iteration-4 minor fixes. Backend: added tests/test_iteration6_retest.py with 7 tests, all passing. The full regression, run per file with -n 0, passed 69/69 (the 62 earlier tests plus 7 new). Frontend at 375x667: block state survives a reload (the blocker sees 'Unblock' and the blocked party sees thread-blocked-notice with no composer). A buyer message on a closed lead reopens it to New. The lead shows in the New filter and not in Closed. Rapid double-taps on the admin deletion buttons send only one POST. One small window is left: a tap after the mutation succeeds but before the list refetches still sends a second POST, which returns 404. Delete-account limits work: 2 per email per 24h (also across IPs) and 5 per IP per hour, with no global cap. However, the IP comes from the client-supplied X-Forwarded-For header, so a client can fake it.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/legal/delete-account", "issue": "The per-IP limit uses the first X-Forwarded-For value, which the client controls. Sending 'X-Forwarded-For: 10.99.99.1' stored ip=10.99.99.1, so changing the header gets around the 5/hour IP limit. The per-email limit still holds. Reference: backend/extras.py:124"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Admin deletion requests", "issue": "closeReq onSuccess does not return or await qc.invalidateQueries. isPending turns false while the old card is still shown during the refetch, so a second tap in that window sent POST 200 then POST 404. Rapid double-taps are blocked correctly. Reference: frontend/app/admin/reports.tsx:35", "testID": "deletion-complete-{id}", "priority": "low"},
+      {"component": "SafetyActions / Thread", "issue": "After Block or Unblock inside the session, the button label updates but the Thread composer and notice do not change until a reload: right after blocking the composer still shows, and right after unblocking the notice still shows. SafetyActions does not invalidate the lead/enquiry query or update messaging_blocked. Reference: frontend/src/components/SafetyActions.tsx:24", "testID": "safety-block-btn", "priority": "low"}
+    ],
+    "integration_issues": [
+      {"flow": "Auth bootstrap", "issue": "Any failure of /auth/me at startup calls clear() and deletes the stored token, not just a 401. A network error, offline start or aborted request signs the user out. Seen when the page navigated while /auth/me was in flight. Reference: frontend/src/auth.tsx:104-108", "affected_testIDs": []}
+    ],
+    "design_issues": [
+      {"screen": "admin/reports", "issues": ["The 'Mark completed' label wraps onto 2 lines at 375px width"]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration6_retest.py", "/app/backend/tests/ui_seed_iter6.py", "/app/test_reports/pytest/"],
+  "action_items": [
+    "reports.tsx: in closeReq onSuccess, return qc.invalidateQueries(...) (or remove the item optimistically) so the buttons stay disabled until the list refetches.",
+    "SafetyActions: after block/unblock, invalidate the parent lead/enquiry query (pass queryKey) so the Thread composer and notice update without a reload.",
+    "auth.tsx: call clear() only when /auth/me returns 401, and keep the token on network errors.",
+    "extras.py delete-account: do not trust the client-supplied first X-Forwarded-For value. Use the right-most hop added by the trusted proxy (or X-Real-IP set by the ingress).",
+    "Still open: marketplace.py is over 700 lines. test_iteration4_public_e2e.py still leaves one test_del_* deletion request per run (cleaned up manually this time).",
+    "Optional (from iteration 4): add a confirm step to the deletion-request buttons."
+  ],
+  "critical_code_review_comments": [
+    "lead_view runs two blocks.find_one queries per call. The first result could be reused (messaging_blocked = blocked_by_me or a reverse lookup).",
+    "unblock_from_enquiry does not check that the user is part of the enquiry. It is harmless because it only deletes the caller's own block row, but it is inconsistent with the block endpoint."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration6_retest.py", "/app/backend/tests/ui_seed_iter6.py"],
+  "success_rate": {"backend": "100% (69/69)", "frontend": "100% of retest flows pass; 2 low-priority leftover UX gaps"},
+  "seed_data_creation": "The tests and the UI seed created a TEST_ listing, an enquiry, blocks and test_* deletion requests. All of it was cleaned up, including the leftover test_del_19168b from iteration 4. The seeded test users were not touched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the backend per file with -n 0 using EXPO_BACKEND_URL=https://ujjainestate.preview.emergentagent.com (frontend/.env only has EXPO_PUBLIC_BACKEND_URL). test_iteration6 sends a random X-Forwarded-For so the per-IP quota is not shared. On web, switch users like this: goto BASE with networkidle, set localStorage auth_token, then goto again. If you navigate while /auth/me is in flight, the app clears the token and you get 'Enquiry not found'. UI seed: python -m tests.ui_seed_iter6 [cleanup]."
+}

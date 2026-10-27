@@ -1,0 +1,44 @@
+{
+  "summary": "Full backend and frontend pass on the Play Store readiness and marketplace round. Backend: the existing suites pass (32/32: test_extras 6, test_marketplace 5, test_seed 6, test_landvilla_api 15, each run with -n 0). The new public-URL E2E suite test_iteration4_public_e2e.py passes 8/8. It covers legal pages and the deletion form, owner listing to moderation (duplicate flags, request-changes note required, reject, approve), public search, SEO index/noindex and sitemap, the broker gate (403 then apply then approve then post), enquiry consent and phone masking, lead patch, messages, report and resolve, block (403), account deletion with a fresh Mongo user (old session 403 reauth_required, then 200, then token 401), featured plans and order 503, and commission transitions (evidence and deal value enforced, payment 403). Frontend (375x667 web): every requested flow works end to end in the UI. No red screens or page errors. Only minor UX and privacy issues were found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/enquiries/{id} (buyer view)", "issue": "Returns the lister's private CRM lead status (new/contacted/follow_up/closed). The buyer UI shows it as a 'Follow-up' badge (app/enquiry/[id].tsx:44, marketplace.py:457). The lister's pipeline status should not be shown to the buyer."},
+      {"endpoint": "deletion_requests (admin)", "issue": "There is no endpoint or UI action to mark a web-form deletion request as processed or completed. GET /admin/reports lists open requests forever (extras.py:258). Admin needs a resolve/complete action with an audit note."},
+      {"endpoint": "POST /api/legal/delete-account", "issue": "Public unauthenticated form with no rate limit or captcha, so it can be spammed (extras.py:119-125)."},
+      {"endpoint": "POST /api/payments/featured/order", "issue": "Featured purchases are restricted to web only on the client (src/lister.ts:9 Platform.OS === 'web'). The backend has no platform guard. Acceptable for now, but note it for store compliance."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Admin sheets (resolve report, commission create/op)", "issue": "Raw Pydantic messages are shown with no field context, e.g. 'String should have at least 3 characters' repeated 5x on commission create.", "testID": "resolve-error, commission-create-error, commission-op-error", "priority": "low"},
+      {"component": "Admin reports card", "issue": "Shows the raw reason slug 'wrong_info' and type 'PROPERTY' instead of human labels.", "testID": "report-{id}", "priority": "low"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Lead detail / Enquiry thread", "issues": ["Block applies instantly with no confirm dialog.", "The blocked party still sees an enabled message input and only learns about the block from a toast after sending."]},
+      {"screen": "Enquiry sheet", "issues": ["On web, the phone TextInput's focus outline is drawn inside the +91 container and looks misaligned (cosmetic)."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration4_public_e2e.py", "/app/test_reports/pytest/iter4.xml"],
+  "action_items": [
+    "Hide the lister's CRM status from the buyer enquiry view, or map it to a buyer-safe status (marketplace.py:457, app/enquiry/[id].tsx:44).",
+    "Add an admin action to complete or close web deletion requests (endpoint + button on /admin/reports) with an audit trail.",
+    "Rate-limit POST /api/legal/delete-account, e.g. per IP or per email.",
+    "Map Pydantic validation errors to friendly, field-named messages in the admin sheets, and use human labels for report reasons.",
+    "Optional: add a confirm step before Block, and disable the thread input for the blocked party.",
+    "Code size: marketplace.py is 831 lines (>700). Split it into listings/leads/payments modules."
+  ],
+  "critical_code_review_comments": [
+    "Blocking on one thread blocks the buyer from enquiring on any of that lister's properties ('You can't contact this lister'). This is probably intended; confirm.",
+    "app.json is compliant: CAMERA, RECORD_AUDIO, READ_MEDIA_*, storage and SYSTEM_ALERT_WINDOW are blocked, and the image-picker camera and mic permissions are off. No deprecated expo-av, expo-barcode-scanner or background-fetch.",
+    "Environment: the Expo process crashed once at the start of testing (expo CLI 'Unexpected token <... not valid JSON' from an update check). Supervisor restarted it and the bundle served 200 afterwards."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration4_public_e2e.py (new)"],
+  "success_rate": {"backend": "100% (40/40 tests)", "frontend": "100% of requested flows functional; minor UX issues only"},
+  "seed_data_creation": "Created temporary TEST_ users, sessions, listings, enquiries, reports and commissions, then cleaned them up. The broker test user's profile was reset, re-applied via the UI and approved again, so it ends in the same approved state.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Owner and broker tokens: test_session_owner_landvilla, test_session_broker_landvilla (missing from test_credentials.md; add them). On web, set localStorage auth_token. RN-web bottom sheets animate in: wait about 800ms, then use dispatch_event('click') on confirm buttons. Photo upload: page.expect_file_chooser on add-photo-btn or broker-add-doc-btn. For account deletion, create a fresh user and session in Mongo. Slug 'ujjainestate' does not exist (404). Use a real locality slug such as patni-bazaar."
+}

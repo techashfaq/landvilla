@@ -1,0 +1,57 @@
+{
+  "summary": "First test run of the LANDVILLA backend and the Expo web preview at 390x844. Backend: 21 of 21 pytest tests pass (6 in test_seed.py and 15 in the new test_landvilla_api.py). They cover meta, every search filter, detail and 404, saved, enquiries (validation, 401, 409) and the admin locality lifecycle: RBAC, create, 409 conflicts, PATCH with geocode_source, verify, deactivate/activate, merge. Frontend: every requested flow works. This covers the home screen, Buy/Rent, zone cards, category chips, the filter sheet (BHK, budget, locality), search, the Hindi toggle, property detail, and guest redirect to login for Enquire and Save. With the buyer token: Save to the Saved tab, enquiry validation, successful submit with toast, the Enquiries tab, and a duplicate enquiry giving 409. With the admin token: the Manage Localities link, the list, create, the duplicate toast, verify, merge sheet and deactivate. I found no crashes or red screens. Remaining issues are a backend verification-reset bug plus UI polish items. Deprecated API detected: expo-router/unstable-native-tabs. No SafeAreaView issues, and none of the deprecated packages expo-av, expo-barcode-scanner or expo-background-fetch are used.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "PATCH /api/admin/localities/{id}", "issue": "Verification resets when a key is merely present in the request, not when its value changes. The admin UI always sends name_en, name_hi and zone_id, so an alias-only edit of a VERIFIED locality sets it back to 'pending'. Reproduced via API. Reference: server.py:485", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/admin/localities/merge", "issue": "1) The source's is_active is not checked, so an already-merged or inactive locality can be merged again. 2) update_many(parent_id=src -> tgt) can make the target its own parent if the target's parent was the source. Reference: server.py:532-537"},
+      {"endpoint": "PATCH /api/admin/localities/{id}", "issue": "Only self-parenting is blocked. Parent cycles (A->B, B->A) are still allowed. Reference: server.py:475"},
+      {"endpoint": "GET /api/properties?segment=buy|rent", "issue": "'buy' and 'rent' are valid category slugs, so they pass validation, but properties never have those segments. The request always returns 0 results. It should either map to purpose or return 400."},
+      {"endpoint": "POST /api/saved/{id}", "issue": "Does not check listing_status == active, so inactive listings can be saved."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Admin locality row actions", "issue": "The action row (Edit/Verify/Merge/Deactivate) overflows the card at 390px width. The Deactivate chip spans x=307..423 and shows as 'De...'. It needs flexWrap or smaller chips.", "testID": "admin-toggle-{slug}", "priority": "MEDIUM"},
+      {"component": "Toast vs Sheet z-order", "issue": "Error toasts (e.g. 409 'A locality with this name already exists') render under the sheet's dim backdrop, so they are barely readable. The inline admin-form-error is not used for server errors.", "testID": "toast-message", "priority": "MEDIUM"},
+      {"component": "EnquirySheet 409 error", "issue": "The 409 'already sent an enquiry' message appears in enquiry-form-error, but it sits below the fold in the scrolled sheet and is not visible after tapping Send. It should sit near the footer button or the sheet should scroll to it. The detail page also never shows an 'already enquired' state.", "testID": "enquiry-form-error", "priority": "LOW"},
+      {"component": "Enquiry name validation copy", "issue": "When the name is 'A' (too short), the error reads 'Please enter your name'. It should say the name is too short.", "testID": "enquiry-name-error", "priority": "LOW"},
+      {"component": "Admin merge sheet", "issue": "The footer button label is 'Save' for a destructive merge. It should say 'Merge'. Deactivate also fires on a single tap with no confirmation.", "testID": "admin-locality-save-btn", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Home", "issues": ["The header subtitle 'Verified homes in Ujjain · Ujjain' repeats Ujjain, and it claims 'Verified' while every listing is an UNVERIFIED DEMO.", "Demo data has no BUY listings in the Central Ujjain zone and no commercial-for-sale listings. In the default Buy mode, tapping the first zone card or the Commercial chip shows an empty state, which is a poor first impression.", "Segment and filter chips are 36px tall, below the 44px touch-target minimum (add hitSlop or height 44)."]},
+      {"screen": "Property detail", "issues": ["The Furnishing stat is truncated ('Semi-furni...') in the stats card."]},
+      {"screen": "Admin localities", "issues": ["Action chips are 36px tall, below the 44px minimum."]}
+    ],
+    "react_native_issues": [
+      {"component": "expo-router/unstable-native-tabs", "issue": "Deprecated import. The Expo log warns: 'use expo-router/native-tabs instead'. Reference: /app/frontend/app/(tabs)/_layout.tsx:3"},
+      {"component": "Text node in View", "issue": "The Expo log has 2 entries of 'Unexpected text node: . A text node cannot be a child of a <View>', pointing to app/(tabs)/index.tsx:163-174 (results row). This may be stale (from an earlier build); please verify that no stray text or '.' renders inside a View. Reference: /app/frontend/app/(tabs)/index.tsx:164"}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_landvilla_api.py", "/app/backend/tests/test_seed.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "server.py:485 - reset verification only when name_en/name_hi/zone_id/lat/lng values actually differ from the stored values (or send only changed fields from the admin form).",
+    "Replace `expo-router/unstable-native-tabs` with `expo-router/native-tabs` in app/(tabs)/_layout.tsx.",
+    "Admin locality card: wrap the action chips (flexWrap: 'wrap') so Deactivate is not clipped. Add a confirm dialog for Deactivate and Merge, and rename the merge footer button to 'Merge'.",
+    "Render toasts above Sheet/Modal overlays (or show server errors inline via admin-form-error / enquiry-form-error near the footer).",
+    "Merge endpoint: require an active source and guard against the target becoming its own parent. Block parent cycles in PATCH.",
+    "Return 400 or map purpose for segment=buy/rent in GET /api/properties.",
+    "Fix the home subtitle copy and add a few Buy demo listings in Central Ujjain plus commercial-for-sale listings.",
+    "Check index.tsx:163-174 for stray text nodes inside a View."
+  ],
+  "critical_code_review_comments": [
+    "PATCH verification reset is key-presence based (server.py:485). Confirmed bug.",
+    "Merge does not validate the source's is_active or merged_into, and its parent re-pointing can create a self-parent loop (server.py:532-541).",
+    "No hard-delete endpoint for localities (by design). Tests clean up through Mongo directly.",
+    "Auth uses localStorage on web and expo-web-browser openAuthSessionAsync. The flow looks fine, but I did not test real Google login."
+  ],
+  "updated_files": ["/app/backend/tests/test_landvilla_api.py (new)"],
+  "success_rate": {"backend": "100% (21/21 tests); 1 logic bug found by code review plus a manual API check", "frontend": "~95% - all requested flows work; UI polish issues only"},
+  "seed_data_creation": "No seed data was created. Tests create TEST_ localities and hard-delete them in teardown. The buyer account (user_testbuyer01) now has about 4 enquiries and 1 saved property from the test runs.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && python -m pytest tests/ -q (pytest.ini already applies xdist --dist loadscope). Tokens: buyer test_session_buyer_landvilla, admin test_session_admin_landvilla. On web, set localStorage.auth_token and reload. The enquiry test skips if the buyer already enquired on every property in the last 24h. Filter and admin sheet chips sit inside a ScrollView under a sticky footer; use dispatch_event('click') when Playwright reports 'outside of viewport'.",
+  "rca_of_issue": "Verification reset: admin_edit_locality checks `any(k in upd ...)` on model_dump(exclude_unset=True). The admin LocalityForm always sends name_en, name_hi and zone_id, so the keys are always present. Repro: create a locality, verify it, then PATCH with the same names plus new aliases; the status becomes 'pending'. Fix: compare upd[k] != loc.get(k)."
+}

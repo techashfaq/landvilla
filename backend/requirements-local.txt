@@ -1,0 +1,17 @@
+# Minimal runtime + test dependencies for running LANDVILLA's backend OUTSIDE Emergent
+# (Windows / your own server). requirements.txt is a full Emergent environment freeze and
+# includes packages from a private Emergent index (emergentintegrations, litellm) that the
+# backend code does not import. Use this file on your own machines.
+fastapi==0.110.1
+starlette==0.37.2
+uvicorn==0.25.0
+motor==3.7.1
+pymongo==4.18.2
+pydantic==2.14.1
+python-dotenv==1.2.4
+python-multipart==0.0.32
+httpx==0.28.1
+requests==2.34.2
+# tests
+pytest==9.1.1
+pytest-xdist==3.8.0

@@ -9,7 +9,10 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.ujjainestate.rq35d7"
+      "bundleIdentifier": "com.emergent.ujjainestate.rq35d7",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Add photos of the property you are listing"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -39,7 +42,13 @@
       "expo-secure-store",
       "expo-web-browser",
       "expo-status-bar",
-      "@react-native-vector-icons/ionicons"
+      "@react-native-vector-icons/ionicons",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Add photos of the property you are listing"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

@@ -185,6 +185,7 @@ type Ctx = {
   setLang: (l: Lang) => void;
   t: (k: TKey) => string;
   pick: (obj: any, field: string) => string;
+  tx: (en: string, hi: string) => string;
 };
 
 const LangContext = createContext<Ctx>({} as Ctx);
@@ -208,7 +209,9 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     [lang],
   );
 
-  return <LangContext.Provider value={{ lang, setLang, t, pick }}>{children}</LangContext.Provider>;
+  const tx = useCallback((e: string, h: string) => (lang === "hi" ? h : e), [lang]);
+
+  return <LangContext.Provider value={{ lang, setLang, t, pick, tx }}>{children}</LangContext.Provider>;
 }
 
 export const useLang = () => useContext(LangContext);

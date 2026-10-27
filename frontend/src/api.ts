@@ -6,6 +6,19 @@ let onUnauthorized: (() => void) | null = null;
 export function setApiToken(t: string | null) {
   authToken = t;
 }
+export function getApiToken() {
+  return authToken;
+}
+export const API_BASE = BASE;
+export const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL as string;
+
+/** Absolute URL for an image/file. Uploaded files are served by our backend under /api/files. */
+export function fileUrl(u: string, withToken = false) {
+  if (!u) return u;
+  const abs = u.startsWith("http") ? u : `${BACKEND}${u}`;
+  return withToken && authToken && !u.startsWith("http") ? `${abs}?token=${encodeURIComponent(authToken)}` : abs;
+}
+
 export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn;
 }

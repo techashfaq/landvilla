@@ -6,14 +6,14 @@ import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { Sheet } from "@/src/components/Sheet";
 import { useToast } from "@/src/components/Toast";
-import { Button, Chip } from "@/src/components/ui";
+import { Button, Checkbox, Chip } from "@/src/components/ui";
 import { useLang } from "@/src/i18n";
 import { fonts, makeStyles, useTheme } from "@/src/theme";
 
 export function EnquirySheet({ visible, onClose, propertyId }: { visible: boolean; onClose: () => void; propertyId: string }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const { t } = useLang();
+  const { t, tx } = useLang();
   const { user } = useAuth();
   const toast = useToast();
   const qc = useQueryClient();
@@ -21,6 +21,7 @@ export function EnquirySheet({ visible, onClose, propertyId }: { visible: boolea
   const [phone, setPhone] = useState("");
   const [message, setMessage] = useState("");
   const [intent, setIntent] = useState<"info" | "site_visit" | "callback">("info");
+  const [consent, setConsent] = useState(false);
   const [errors, setErrors] = useState<{ name?: string; phone?: string; form?: string }>({});
 
   useEffect(() => {
@@ -31,7 +32,7 @@ export function EnquirySheet({ visible, onClose, propertyId }: { visible: boolea
   }, [visible, user]);
 
   const m = useMutation({
-    mutationFn: () => api("/enquiries", { method: "POST", body: { property_id: propertyId, name, phone, message, intent } }),
+    mutationFn: () => api("/enquiries", { method: "POST", body: { property_id: propertyId, name, phone, message, intent, share_phone_consent: consent } }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["enquiries"] });
       toast.show(t("enquirySent"), "success");
@@ -107,6 +108,15 @@ export function EnquirySheet({ visible, onClose, propertyId }: { visible: boolea
           placeholderTextColor={colors.muted}
           placeholder={t("message")}
         />
+        <Checkbox
+          checked={consent}
+          onToggle={() => setConsent(!consent)}
+          testID="enquiry-consent-checkbox"
+          label={tx("I agree to share my phone number with this property owner/broker for this enquiry.", "मैं इस पूछताछ के लिए अपना फ़ोन नंबर इस प्रॉपर्टी के मालिक/ब्रोकर के साथ साझा करने के लिए सहमत हूँ।")}
+        />
+        <Text style={styles.privacy}>
+          {tx("Without consent, your number stays hidden and the lister can reply only in the app.", "सहमति के बिना आपका नंबर छिपा रहेगा और लिस्टर केवल ऐप में जवाब दे सकेगा।")}
+        </Text>
       </ScrollView>
     </Sheet>
   );
@@ -134,4 +144,5 @@ const useStyles = makeStyles((c) => ({
   textarea: { minHeight: 90, paddingTop: 12, textAlignVertical: "top" },
   err: { color: c.error, fontFamily: fonts.text, fontSize: 13, marginTop: 4 },
   formErr: { color: c.error, fontFamily: fonts.textMedium, fontSize: 14, marginTop: 8, padding: 12, borderRadius: 12, backgroundColor: c.brandTertiary },
+  privacy: { fontFamily: fonts.text, fontSize: 12, color: c.muted, marginTop: 4, lineHeight: 17 },
 }));

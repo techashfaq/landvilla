@@ -101,7 +101,40 @@ export function Badge({ label, kind, testID }: { label: string; kind: "verified"
   );
 }
 
+export function Checkbox({ checked, onToggle, label, testID }: { checked: boolean; onToggle: () => void; label: string; testID?: string }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  return (
+    <Pressable onPress={onToggle} testID={testID} style={styles.checkRow} accessibilityRole="checkbox" accessibilityState={{ checked }}>
+      <View style={[styles.checkBox, checked && { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary }]}>
+        {checked && <Ionicons name="checkmark" size={16} color={colors.onBrandPrimary} />}
+      </View>
+      <Text style={styles.checkLabel}>{label}</Text>
+    </Pressable>
+  );
+}
+
+export function ScreenHeader({ title, onBack, right, topInset }: { title: string; onBack: () => void; right?: React.ReactNode; topInset: number }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  return (
+    <View style={[styles.sHeader, { paddingTop: topInset + 8 }]}>
+      <Pressable testID="screen-back-btn" onPress={onBack} style={styles.sBack} hitSlop={8}>
+        <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
+      </Pressable>
+      <Text style={styles.sTitle} numberOfLines={1}>{title}</Text>
+      <View style={{ minWidth: 44, alignItems: "flex-end" }}>{right}</View>
+    </View>
+  );
+}
+
 const useStyles = makeStyles((c) => ({
+  checkRow: { flexDirection: "row", gap: 12, alignItems: "flex-start", paddingVertical: 12 },
+  checkBox: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: c.borderStrong, alignItems: "center", justifyContent: "center", marginTop: 1 },
+  checkLabel: { flex: 1, fontFamily: fonts.textMedium, fontSize: 14, color: c.onSurface, lineHeight: 20 },
+  sHeader: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingBottom: 8, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.divider },
+  sBack: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  sTitle: { flex: 1, fontFamily: fonts.display, fontSize: 20, color: c.onSurface, marginLeft: 4 },
   chip: {
     height: 36,
     flexShrink: 0,

@@ -16,7 +16,7 @@ export default function Profile() {
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
   const styles = useStyles();
   const { colors } = useTheme();
-  const { t, lang, setLang } = useLang();
+  const { t, lang, setLang, tx } = useLang();
   const { user, logout } = useAuth();
   const router = useRouter();
 
@@ -62,9 +62,37 @@ export default function Profile() {
           </View>
         </View>
 
+        {user && (
+          <View style={styles.card}>
+            <Text style={styles.rowLabel}>{tx("Sell or rent out", "बेचें या किराए पर दें")}</Text>
+            {([
+              ["add-circle-outline", tx("Post a property", "प्रॉपर्टी पोस्ट करें"), "/post", "profile-post-link"],
+              ["list-outline", tx("My listings", "मेरी लिस्टिंग"), "/listings", "profile-my-listings-link"],
+              ["mail-unread-outline", tx("Lead inbox", "लीड इनबॉक्स"), "/leads", "profile-leads-link"],
+            ] as const).map(([icon, label, href, tid]) => (
+              <Pressable key={href} testID={tid} onPress={() => router.push(href as any)} style={styles.linkRow}>
+                <Ionicons name={icon} size={22} color={colors.brandPrimary} />
+                <Text style={styles.linkText}>{label}</Text>
+                <Ionicons name="chevron-forward" size={20} color={colors.muted} />
+              </Pressable>
+            ))}
+          </View>
+        )}
+
         {user?.role === "admin" && (
           <View style={styles.card}>
             <Text style={styles.rowLabel}>{t("adminTools")}</Text>
+            {([
+              ["checkmark-done-outline", "Approval queue", "/admin/listings", "admin-listings-link"],
+              ["briefcase-outline", "Broker verification", "/admin/brokers", "admin-brokers-link"],
+              ["star-outline", "Featured plans & payments", "/admin/plans", "admin-plans-link"],
+            ] as const).map(([icon, label, href, tid]) => (
+              <Pressable key={href} testID={tid} onPress={() => router.push(href as any)} style={styles.linkRow}>
+                <Ionicons name={icon} size={22} color={colors.brandPrimary} />
+                <Text style={styles.linkText}>{label}</Text>
+                <Ionicons name="chevron-forward" size={20} color={colors.muted} />
+              </Pressable>
+            ))}
             <Pressable testID="admin-localities-link" onPress={() => router.push("/admin/localities")} style={styles.linkRow}>
               <Ionicons name="map-outline" size={22} color={colors.brandPrimary} />
               <Text style={styles.linkText}>{t("manageLocalities")}</Text>

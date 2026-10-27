@@ -22,6 +22,19 @@ Ujjain-first (Madhya Pradesh) real estate marketplace like Housing.com, expandin
 - EN/HI toggle persisted, Devanagari fonts (Mukta/Hind)
 - Tests: backend/tests (seed idempotency, duplicates, locality filtering, API) – 27 passing
 
+## Iteration 2 (Oct 2026) – built, backend tests pass, NOT yet verified by testing agent
+- Owner/Broker listing submission with photos (object storage), owner-authority declaration, moderation disclaimer
+- Broker verification (private docs, RERA recorded separately), admin approve/reject/suspend; server-enforced gate
+- Admin approval queue (approve / reject / request changes) + duplicate flags (price/area, title, same lister, identical photo hash)
+- Lead inbox: masked buyer phone unless per-enquiry consent, audited reveal, status/follow-up/notes, in-app messages
+- Featured plans (₹299/30d, ₹499/45d – admin editable), Razorpay order/checkout/signature verify/webhook/idempotent activation/expiry
+- Pending: Razorpay TEST keys from user (secure card requested), testing-agent run, commission records workflow
+
+## Play Store readiness review (Oct 2026) – blockers found
+- No in-app account deletion; no privacy policy/terms; SEED_TEST_SESSIONS + SEED_DEMO_LISTINGS true in live slot
+- No user block/report UI for messages; Featured payments via Razorpay need Play Billing classification
+- expo-image-picker camera/mic perms + media-library permission request to tighten
+
 ## Backlog
 - P0: Owner/broker listing submission + admin approval queue; enquiry management for owners/brokers; broker tools
 - P1: Payments (Razorpay) for featured listings/subscriptions; duplicate listing detection; image uploads (object storage); admin CMS for brand/pricing/cities

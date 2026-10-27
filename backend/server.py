@@ -189,7 +189,8 @@ async def enrich(props: List[dict], user: Optional[dict] = None) -> List[dict]:
     out = []
     for p in props:
         d = clean(p)
-        d.pop("demo_key", None)
+        for k in ("demo_key", "owner_user_id", "photo_hashes", "duplicate_flags", "moderation", "moderation_history", "owner_declaration", "photo_ids"):
+            d.pop(k, None)
         l = locs.get(p["locality_id"])
         d["locality"] = loc_public(l) if l else None
         z = zones.get(l.get("zone_id")) if l else None
@@ -216,6 +217,7 @@ async def search_properties(
     limit: int = Query(20, ge=1, le=50),
 ):
     city = await get_city()
+    await db.properties.update_many({"featured": True, "featured_until": {"$ne": None, "$lt": now()}}, {"$set": {"featured": False}})
     flt: dict = {"listing_status": "active", "city_id": city["id"]}
     if purpose:
         flt["purpose"] = purpose
@@ -322,6 +324,7 @@ class EnquiryIn(BaseModel):
     phone: str
     message: Optional[str] = Field(default="", max_length=500)
     intent: str = Field(default="info", pattern="^(info|site_visit|callback)$")
+    share_phone_consent: bool = False
 
     @field_validator("phone")
     @classmethod
@@ -347,13 +350,19 @@ async def create_enquiry(body: EnquiryIn, user: dict = Depends(current_user)):
     p = await db.properties.find_one({"id": body.property_id, "listing_status": "active"}, {"_id": 0})
     if not p:
         raise HTTPException(404, "Property not found")
+    if p.get("owner_user_id") == user["user_id"]:
+        raise HTTPException(400, "You cannot enquire on your own listing")
     recent = await db.enquiries.find_one({"user_id": user["user_id"], "property_id": body.property_id,
                                           "created_at": {"$gte": now() - timedelta(hours=24)}})
     if recent:
         raise HTTPException(409, "You already sent an enquiry for this property in the last 24 hours")
     doc = {"id": f"enq_{uuid.uuid4().hex[:12]}", "user_id": user["user_id"], "property_id": body.property_id,
+           "lister_user_id": p.get("owner_user_id"),
            "name": body.name, "phone": body.phone, "message": (body.message or "").strip(), "intent": body.intent,
-           "status": "new", "is_demo_property": bool(p.get("is_demo")), "created_at": now()}
+           "share_phone_consent": body.share_phone_consent,
+           "consent_text": "I agree to share my phone number with this property owner/broker for this enquiry." if body.share_phone_consent else None,
+           "consent_at": now() if body.share_phone_consent else None,
+           "status": "new", "is_demo_property": bool(p.get("is_demo")), "notes": [], "messages": [], "created_at": now()}
     await db.enquiries.insert_one(doc)
     return clean(doc)
 
@@ -367,7 +376,10 @@ async def my_enquiries(user: dict = Depends(current_user)):
     out = []
     for d in docs:
         x = clean(d)
+        x.pop("notes", None)
         x["property"] = pmap.get(d["property_id"])
+        x["message_count"] = len(d.get("messages", []))
+        x.pop("messages", None)
         out.append(x)
     return {"items": out}
 
@@ -564,23 +576,29 @@ async def root():
     return {"app": "LANDVILLA", "status": "ok"}
 
 
+import marketplace  # noqa: E402  (needs the helpers above)
+
 app.include_router(api)
+app.include_router(marketplace.router)
 app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 async def seed_test_sessions():
     """DEV ONLY: deterministic test sessions so automated tests can call authed endpoints."""
-    for uid, email, role, token in [("user_testbuyer01", "buyer.test@landvilla.dev", "buyer", "test_session_buyer_landvilla"),
-                                    ("user_testadmin01", "admin.test@landvilla.dev", "admin", "test_session_admin_landvilla")]:
-        await db.users.update_one({"user_id": uid}, {"$set": {"email": email, "name": f"Test {role.title()}", "role": role, "picture": None},
-                                                     "$setOnInsert": {"created_at": now()}}, upsert=True)
-        await db.user_sessions.update_one({"session_token": token}, {"$set": {"user_id": uid, "expires_at": now() + timedelta(days=30), "created_at": now()}}, upsert=True)
+    for uid_, email, role, token in [("user_testbuyer01", "buyer.test@landvilla.dev", "buyer", "test_session_buyer_landvilla"),
+                                     ("user_testadmin01", "admin.test@landvilla.dev", "admin", "test_session_admin_landvilla"),
+                                     ("user_testowner01", "owner.test@landvilla.dev", "buyer", "test_session_owner_landvilla"),
+                                     ("user_testbroker01", "broker.test@landvilla.dev", "buyer", "test_session_broker_landvilla")]:
+        await db.users.update_one({"user_id": uid_}, {"$set": {"email": email, "name": f"Test {email.split('.')[0].title()}", "role": role, "picture": None},
+                                                      "$setOnInsert": {"created_at": now()}}, upsert=True)
+        await db.user_sessions.update_one({"session_token": token}, {"$set": {"user_id": uid_, "expires_at": now() + timedelta(days=30), "created_at": now()}}, upsert=True)
 
 
 @app.on_event("startup")
 async def startup():
     rep = await seed_all(db, include_demo=SEED_DEMO)
     logger.info("Seed report: inserted=%s skipped=%s unresolved=%s", rep["inserted"], rep["skipped_duplicates"], rep["unresolved_localities"])
+    await marketplace.seed_marketplace()
     if SEED_TEST_SESSIONS:
         await seed_test_sessions()
 

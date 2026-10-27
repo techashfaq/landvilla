@@ -8,7 +8,7 @@ import React, { useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Share, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api } from "@/src/api";
+import { api, fileUrl } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { EnquirySheet } from "@/src/components/EnquirySheet";
 import { Badge, Button, EmptyState } from "@/src/components/ui";
@@ -22,7 +22,7 @@ export default function PropertyDetail() {
   const { width } = useWindowDimensions();
   const styles = useStyles();
   const { colors } = useTheme();
-  const { t, pick, lang } = useLang();
+  const { t, pick, lang, tx } = useLang();
   const { user } = useAuth();
   const router = useRouter();
   const { data: meta } = useMeta();
@@ -70,7 +70,7 @@ export default function PropertyDetail() {
             onMomentumScrollEnd={(e) => setImgIdx(Math.round(e.nativeEvent.contentOffset.x / width))}
           >
             {p.images.map((src, i) => (
-              <Image key={i} source={{ uri: src }} style={{ width, height: 320 }} contentFit="cover" transition={200} />
+              <Image key={i} source={{ uri: fileUrl(src) }} style={{ width, height: 320 }} contentFit="cover" transition={200} />
             ))}
           </ScrollView>
           <LinearGradient colors={["rgba(0,0,0,0.5)", "transparent"]} style={styles.topScrim} pointerEvents="none" />
@@ -139,6 +139,7 @@ export default function PropertyDetail() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{t("about")}</Text>
             <Text style={styles.desc}>{pick(p, "description")}</Text>
+            <Text style={styles.disclaimer} testID="moderation-disclaimer">{tx("Listing moderation by LANDVILLA is not a guarantee of title, ownership, approvals or legal status. Please do your own legal due diligence.", "LANDVILLA द्वारा लिस्टिंग की जाँच, मालिकाना हक़, स्वामित्व, अनुमतियों या कानूनी स्थिति की गारंटी नहीं है। कृपया स्वयं कानूनी जाँच करें।")}</Text>
           </View>
         </View>
       </ScrollView>
@@ -216,6 +217,7 @@ const useStyles = makeStyles((c) => ({
   locCardTitle: { fontFamily: fonts.textSemi, fontSize: 16, color: c.onSurface },
   locNote: { fontFamily: fonts.text, fontSize: 13, color: c.muted },
   desc: { fontFamily: fonts.text, fontSize: 15, lineHeight: 23, color: c.onSurfaceSecondary },
+  disclaimer: { fontFamily: fonts.text, fontSize: 12, lineHeight: 18, color: c.muted, marginTop: 16, padding: 12, borderRadius: 12, backgroundColor: c.surfaceSecondary },
   headerBar: { position: "absolute", left: 16, right: 16, flexDirection: "row", justifyContent: "space-between" },
   glassBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.9)", alignItems: "center", justifyContent: "center" },
   cta: {

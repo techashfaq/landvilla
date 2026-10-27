@@ -6,7 +6,7 @@ import React from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api } from "@/src/api";
+import { api, fileUrl } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { Badge, EmptyState } from "@/src/components/ui";
 import { formatPrice, Property } from "@/src/data";
@@ -14,7 +14,7 @@ import { useLang } from "@/src/i18n";
 import { usesNativeTabs } from "@/src/navigation";
 import { fonts, makeStyles, useTheme } from "@/src/theme";
 
-type Enquiry = { id: string; property_id: string; intent: string; status: string; message: string; created_at: string; property?: Property };
+type Enquiry = { id: string; property_id: string; intent: string; status: string; message: string; created_at: string; property?: Property; message_count?: number };
 
 export default function Enquiries() {
   const insets = useSafeAreaInsets();
@@ -50,10 +50,10 @@ export default function Enquiries() {
             <Pressable
               testID={`enquiry-item-${item.id}`}
               style={styles.card}
-              onPress={() => item.property && router.push(`/property/${item.property_id}`)}
+              onPress={() => router.push(`/enquiry/${item.id}`)}
             >
               {item.property?.images?.[0] ? (
-                <Image source={{ uri: item.property.images[0] }} style={styles.thumb} contentFit="cover" />
+                <Image source={{ uri: fileUrl(item.property.images[0]) }} style={styles.thumb} contentFit="cover" />
               ) : (
                 <View style={[styles.thumb, { alignItems: "center", justifyContent: "center" }]}>
                   <Ionicons name="home-outline" size={24} color={colors.muted} />
@@ -72,6 +72,7 @@ export default function Enquiries() {
                 <View style={{ flexDirection: "row", gap: 6, marginTop: 2 }}>
                   <Badge label={statusLabel(item.status)} kind={item.status === "contacted" ? "verified" : "muted"} testID={`enquiry-status-${item.id}`} />
                   {item.property?.is_demo && <Badge label={t("demo")} kind="demo" />}
+                  {!!item.message_count && <Badge label={`${item.message_count} msg`} kind="featured" />}
                 </View>
               </View>
             </Pressable>

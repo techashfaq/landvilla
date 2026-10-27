@@ -129,3 +129,6 @@ backups/
 # Emergent runtime artifacts
 .emergent/testing/
 .emergent/cron/
+*.env
+credentials.json
+.credentials

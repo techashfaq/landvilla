@@ -243,6 +243,8 @@ async def unblock_from_enquiry(enq_id: str, user: dict = Depends(current_user)):
     e = await db.enquiries.find_one({"id": enq_id}, {"_id": 0})
     if not e:
         raise HTTPException(404, "Enquiry not found")
+    if user["user_id"] not in (e.get("user_id"), e.get("lister_user_id")):
+        raise HTTPException(404, "Enquiry not found")
     other = e.get("lister_user_id") if user["user_id"] == e.get("user_id") else e.get("user_id")
     await db.blocks.delete_one({"blocker_id": user["user_id"], "blocked_id": other})
     return {"blocked": False}

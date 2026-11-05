@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from server import admin_user, clean, current_user, db, now
+from featured import featured_projection
 
 router = APIRouter(prefix="/api")
 E = html.escape
@@ -500,7 +501,12 @@ def inr(v: int, purpose: str) -> str:
 
 
 async def seo_listings(loc_id: str) -> List[dict]:
-    return await db.properties.find({"locality_id": loc_id, "listing_status": "active", "is_demo": {"$ne": True}}, {"_id": 0}).sort([("featured", -1), ("created_at", -1)]).to_list(50)
+    cutoff = now()
+    return await db.properties.aggregate([
+        {"$match": {"locality_id": loc_id, "listing_status": "active", "is_demo": {"$ne": True}}},
+        featured_projection(cutoff), {"$sort": {"featured": -1, "created_at": -1}},
+        {"$limit": 50}, {"$project": {"_id": 0}},
+    ]).to_list(50)
 
 
 async def indexable(loc: dict, n_listings: int) -> bool:

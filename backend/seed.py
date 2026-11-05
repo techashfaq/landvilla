@@ -68,7 +68,9 @@ async def m002_identity_indexes(db):
     await db.auth_limits.create_index("expires_at", expireAfterSeconds=0)
 
 
-MIGRATIONS = [("001_indexes", m001_indexes), ("002_identity_indexes", m002_identity_indexes)]
+# Identity indexes are opt-in: only scripts/apply_identity_indexes.py provisions
+# migration 002 after explicit environment/database checks and confirmation.
+MIGRATIONS = [("001_indexes", m001_indexes)]
 
 
 async def run_migrations(db):

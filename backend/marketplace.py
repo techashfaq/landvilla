@@ -446,7 +446,7 @@ async def create_listing(body: ListingIn, user: dict = Depends(current_user)):
 
 
 @router.get("/listings/mine")
-async def my_listings(user: dict = Depends(current_user), page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100)):
+async def my_listings(user: dict = Depends(current_user), page: int = Query(1, ge=1), limit: int = Query(200, ge=1, le=200)):
     flt = {"owner_user_id": user["user_id"]}
     total = await db.properties.count_documents(flt)
     docs = await db.properties.find(flt, {"_id": 0}).sort([("created_at", -1), ("id", 1)]).skip((page - 1) * limit).limit(limit).to_list(limit)

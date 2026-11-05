@@ -61,11 +61,16 @@ class MemoryDB:
 
 class Regressions(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        from mongo_type_fixture import install_type_operator
+        install_type_operator(self)
         self.db = MemoryDB()
         self.patches = [patch.object(module, "db", self.db) for module in (server, marketplace, identity, extras, browser_sessions)]
         for p in self.patches: p.start()
         self.api = httpx.AsyncClient(transport=httpx.ASGITransport(app=server.app), base_url="http://test")
         await seed.seed_all(self.db, include_demo=True)
+        # Explicit isolated fixture setup; ordinary seeding must not enable identity.
+        await seed.m002_identity_indexes(self.db)
+        await self.db.schema_migrations.insert_one({"version": "002_identity_indexes", "applied_at": server.now()})
         self.user = {"user_id": "owner", "email": "owner@example.com", "email_verified": True, "role": "buyer", "account_status": "active"}
         await self.db.users.insert_one(self.user)
         await self.db.user_sessions.insert_one({"session_token": "owner-token", "user_id": "owner", "created_at": server.now(), "expires_at": server.now() + timedelta(days=1)})

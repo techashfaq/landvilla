@@ -22,6 +22,7 @@ load_dotenv(ROOT_DIR / ".env")
 
 from seed import norm, seed_all  # noqa: E402
 from visibility import public_property_filter
+from featured import effective_featured, featured_projection
 from database_diagnostics import error_category
 
 client = AsyncIOMotorClient(os.environ["MONGO_URL"], serverSelectionTimeoutMS=8000, connectTimeoutMS=8000, socketTimeoutMS=15000)
@@ -251,7 +252,8 @@ async def meta(city: str = "ujjain"):
 
 
 # ------------------------------------------------------------------ properties
-async def enrich(props: List[dict], user: Optional[dict] = None) -> List[dict]:
+async def enrich(props: List[dict], user: Optional[dict] = None, *, cutoff: Optional[datetime] = None) -> List[dict]:
+    cutoff = cutoff if cutoff is not None else now()
     loc_ids = list({p["locality_id"] for p in props})
     locs = {l["id"]: l async for l in db.localities.find({"id": {"$in": loc_ids}}, {"_id": 0})}
     zone_ids = list({l.get("zone_id") for l in locs.values() if l.get("zone_id")})
@@ -262,8 +264,7 @@ async def enrich(props: List[dict], user: Optional[dict] = None) -> List[dict]:
     out = []
     for p in props:
         d = clean(p)
-        if p.get("featured_until") and aware(p["featured_until"]) <= now():
-            d["featured"] = False
+        d["featured"] = effective_featured(p, cutoff)
         for k in ("demo_key", "owner_user_id", "photo_hashes", "duplicate_flags", "moderation", "moderation_history", "owner_declaration", "photo_ids"):
             d.pop(k, None)
         l = locs.get(p["locality_id"])
@@ -291,6 +292,7 @@ async def search_properties(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=50),
 ):
+    cutoff = now()
     city = await get_city()
     flt: dict = {"$and": [public_property_filter(SEED_DEMO)], "city_id": city["id"]}
     if purpose:
@@ -349,9 +351,16 @@ async def search_properties(
             flt.setdefault("$and", []).append({"$or": vals})
     sort_spec = {"newest": [("featured", -1), ("created_at", -1), ("id", 1)], "price_asc": [("price", 1), ("id", 1)], "price_desc": [("price", -1), ("id", 1)]}[sort]
     total = await db.properties.count_documents(flt)
-    docs = await db.properties.find(flt, {"_id": 0}).sort(sort_spec).skip((page - 1) * limit).limit(limit).to_list(limit)
+    if sort == "newest":
+        docs = await db.properties.aggregate([
+            {"$match": flt}, featured_projection(cutoff),
+            {"$sort": dict(sort_spec)}, {"$skip": (page - 1) * limit},
+            {"$limit": limit}, {"$project": {"_id": 0}},
+        ]).to_list(limit)
+    else:
+        docs = await db.properties.find(flt, {"_id": 0}).sort(sort_spec).skip((page - 1) * limit).limit(limit).to_list(limit)
     user = await current_user_optional(request)
-    return {"items": await enrich(docs, user), "total": total, "page": page, "limit": limit}
+    return {"items": await enrich(docs, user, cutoff=cutoff), "total": total, "page": page, "limit": limit}
 
 
 @api.get("/properties/{prop_id}")

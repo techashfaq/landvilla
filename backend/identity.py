@@ -217,6 +217,12 @@ async def request_otp(body: OtpRequest, request: Request):
            "verifier": verifier(challenge, code), "attempts": 0, "used": False, "delivered": False, "expires_at": now() + timedelta(minutes=5),
            "resend_at": now() + timedelta(seconds=60), "user_id": user["user_id"] if user else None,
            "registration": body.registration.model_dump() if body.registration else None}
+    if body.purpose == "contact" and channel == "mobile":
+        # Snapshot plus version rejects stale and changed-away-then-back challenges.
+        row["mobile_state"] = {
+            field: user[field] if field in user else {"$exists": False}
+            for field in ("mobile", "mobile_verified", "mobile_contact_version")
+        }
     browser = getattr(request.state, "browser_session", None)
     row["browser_session"] = browser["session_token"] if browser else None
     try:
@@ -225,8 +231,6 @@ async def request_otp(body: OtpRequest, request: Request):
     except DuplicateKeyError:
         raise HTTPException(429, "Please wait before requesting another code", headers={"Retry-After": "60"}) from None
     existing = await db.users.find_one({channel: identifier})
-    if body.purpose == "register" and body.registration:
-        existing = existing or await db.users.find_one({"mobile": body.registration.mobile})
     eligible = (body.purpose == "register" and existing is None) or (body.purpose == "login" and existing and existing.get(channel + "_verified")) or body.purpose == "contact"
     if eligible:
         try:
@@ -279,7 +283,7 @@ async def verify_otp(body: OtpVerify, request: Request):
     if row["purpose"] == "register":
         if user:
             raise HTTPException(400, "Unable to complete verification. Try signing in")
-        profile = row["registration"]
+        profile = {k: v for k, v in row["registration"].items() if k != "mobile"}
         user = {**profile, "user_id": "user_" + secrets.token_hex(12), "role": "buyer", "name": profile["first_name"] + " " + profile["last_name"],
                 "email_verified": True, "mobile_verified": False, "account_status": "active", "created_at": now(),
                 "terms_accepted_at": now(), "privacy_accepted_at": now()}
@@ -290,10 +294,20 @@ async def verify_otp(body: OtpVerify, request: Request):
     elif row["purpose"] == "contact":
         if user and user["user_id"] != row["user_id"]:
             raise HTTPException(409, "Contact cannot be linked")
+        match = {"user_id": row["user_id"]}
+        changes = {channel: identifier, channel + "_verified": True, "updated_at": now()}
+        if channel == "mobile":
+            state = row.get("mobile_state")
+            if not isinstance(state, dict) or set(state) != {"mobile", "mobile_verified", "mobile_contact_version"}:
+                raise HTTPException(409, "Contact verification changed. Request a new code")
+            match.update(state)
+            changes["mobile_contact_version"] = secrets.token_hex(16)
         try:
-            await db.users.update_one({"user_id": row["user_id"]}, {"$set": {channel: identifier, channel + "_verified": True, "updated_at": now()}})
+            result = await db.users.update_one(match, {"$set": changes})
         except DuplicateKeyError:
             raise HTTPException(409, "Contact cannot be linked") from None
+        if not result.matched_count:
+            raise HTTPException(409, "Contact verification changed. Request a new code")
         return {"verified": True}
     elif not user or user["user_id"] != row.get("user_id") or not user.get(channel + "_verified"):
         raise HTTPException(400, "Invalid or expired verification code")

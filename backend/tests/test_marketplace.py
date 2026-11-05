@@ -156,7 +156,8 @@ def test_webhook_signature_idempotency_and_expiry(c, prop):
     bad = {"event": "payment.captured", "payload": {"payment": {"entity": {"id": "pay_p2", "order_id": o2["razorpay_order_id"], "amount": 100, "currency": "INR"}}}}
     _hook(c, bad, f"evt_{uuid.uuid4().hex[:8]}")
     assert c.portal.call(server.db.payment_orders.find_one, {"id": o2["id"]})["status"] == "created"
-    # expiry: past featured_until is cleared on next search
+    # Public GETs project expiry without changing the persisted entitlement flag.
     c.portal.call(server.db.properties.update_one, {"id": prop}, {"$set": {"featured_until": datetime.now(timezone.utc) - timedelta(minutes=1)}})
     c.get("/api/properties?limit=1")
-    assert c.portal.call(server.db.properties.find_one, {"id": prop})["featured"] is False
+    assert c.portal.call(server.db.properties.find_one, {"id": prop})["featured"] is True
+    assert c.get(f"/api/properties/{prop}").json()["featured"] is False

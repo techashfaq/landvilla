@@ -1,4 +1,5 @@
 import logging
+import hashlib
 import os
 import re
 import uuid
@@ -11,24 +12,71 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, field_validator
+from pymongo.errors import PyMongoError
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from starlette.middleware.cors import CORSMiddleware
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 from seed import norm, seed_all  # noqa: E402
+from visibility import public_property_filter
+from featured import effective_featured, featured_projection
+from database_diagnostics import error_category
 
-client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+client = AsyncIOMotorClient(os.environ["MONGO_URL"], serverSelectionTimeoutMS=8000, connectTimeoutMS=8000, socketTimeoutMS=15000)
 db = client[os.environ["DB_NAME"]]
 ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
 SEED_DEMO = os.environ.get("SEED_DEMO_LISTINGS", "false").lower() == "true"
 SEED_TEST_SESSIONS = os.environ.get("SEED_TEST_SESSIONS", "false").lower() == "true"
+PRODUCTION = os.getenv("APP_ENV", "development").lower() == "production"
+if PRODUCTION and (SEED_DEMO or SEED_TEST_SESSIONS):
+    raise RuntimeError("Production must disable demo listings and test sessions")
+if PRODUCTION and os.getenv("SEED_ON_STARTUP", "false").lower() == "true":
+    raise RuntimeError("Production must disable startup seeding and automatic index provisioning")
 EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("landvilla")
 
 app = FastAPI(title="LANDVILLA API")
+
+
+@app.middleware("http")
+async def private_response_headers(request: Request, call_next):
+    try:
+        await browser_sessions.guard(request)
+        response = await call_next(request)
+    except HTTPException as exc:
+        response = JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
+    except PyMongoError:
+        response = JSONResponse(status_code=503, content={"detail": "Database temporarily unavailable"})
+    if request.url.path.startswith(("/api/auth/", "/api/me/")):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
+@app.exception_handler(RequestValidationError)
+async def invalid_request(request: Request, exc: RequestValidationError):
+    # Pydantic's default input field can reflect OTPs, provider tokens and private data.
+    return JSONResponse(status_code=422, content={"detail": [
+        {"loc": list(error["loc"]), "msg": error["msg"], "type": error["type"]}
+        for error in exc.errors()
+    ]})
+
+
+@app.exception_handler(PyMongoError)
+async def database_error(request: Request, exc: PyMongoError):
+    logger.error("Database operation unavailable (%s)", type(exc).__name__)
+    return JSONResponse(status_code=503, content={"detail": "Database temporarily unavailable"})
+
+
+@app.get("/ready", include_in_schema=False)
+async def readiness():
+    await db.command("ping")
+    return {"status": "ready"}
 
 
 @app.get("/health", include_in_schema=False)
@@ -69,20 +117,30 @@ def clean(doc: Optional[dict]) -> Optional[dict]:
 
 # ------------------------------------------------------------------ auth
 async def current_user_optional(request: Request) -> Optional[dict]:
+    if browser_sessions.browser_request(request):
+        if request.headers.get("Authorization"):
+            return None
+        return await browser_sessions.user_from_session(await browser_sessions.session(request))
     auth = request.headers.get("Authorization", "")
     if not auth.lower().startswith("bearer "):
         return None
     token = auth[7:].strip()
     if not token:
         return None
-    # Dev test tokens are never valid unless test sessions are explicitly enabled for this environment.
+    return await user_for_token(token)
+
+
+async def user_for_token(token: str) -> Optional[dict]:
+    # All authentication transports share the same revocation rules.
+    if token.startswith("sha256:"):
+        return None
     if token.startswith("test_session_") and not SEED_TEST_SESSIONS:
         return None
-    sess = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
-    if not sess or aware(sess["expires_at"]) < now():
+    sess = await db.user_sessions.find_one({"session_token": {"$in": [token, "sha256:" + hashlib.sha256(token.encode()).hexdigest()]}}, {"_id": 0})
+    if not sess or sess.get("transport") == "browser" or aware(sess["expires_at"]) <= now():
         return None
     user = await db.users.find_one({"user_id": sess["user_id"]}, {"_id": 0})
-    if user and user.get("suspended"):
+    if user and (user.get("suspended") or user.get("account_status", "active") != "active"):
         return None
     if user:
         user["_session_created_at"] = aware(sess.get("created_at"))
@@ -112,32 +170,38 @@ class SessionIn(BaseModel):
 
 @api.post("/auth/session")
 async def auth_session(body: SessionIn):
-    async with httpx.AsyncClient(timeout=15) as hc:
-        r = await hc.get(EMERGENT_SESSION_URL, headers={"X-Session-ID": body.session_id})
+    try:
+        async with httpx.AsyncClient(timeout=15) as hc:
+            r = await hc.get(EMERGENT_SESSION_URL, headers={"X-Session-ID": body.session_id})
+    except httpx.HTTPError:
+        raise HTTPException(503, "Google sign-in provider unavailable") from None
     if r.status_code != 200:
         raise HTTPException(status_code=401, detail="Invalid session")
-    data = r.json()
+    try:
+        data = r.json()
+        if not isinstance(data, dict) or not isinstance(data.get("email"), str) or not data.get("session_token"):
+            raise ValueError()
+    except ValueError:
+        raise HTTPException(502, "Invalid sign-in provider response") from None
     email = data["email"].lower()
     role = "admin" if email in ADMIN_EMAILS else "buyer"
     existing = await db.users.find_one({"email": email}, {"_id": 0})
     if existing:
+        if existing.get("auth_provider") != "emergent" and (existing.get("email_verified") or existing.get("google_sub")):
+            raise HTTPException(409, "Use your existing email or independent Google sign-in method")
+        if existing.get("suspended") or existing.get("account_status", "active") != "active":
+            raise HTTPException(403, "Account unavailable")
         user_id = existing["user_id"]
-        upd = {"name": data.get("name"), "picture": data.get("picture"), "updated_at": now()}
+        upd = {"name": data.get("name"), "picture": data.get("picture"), "updated_at": now(), "auth_provider": "emergent"}
         if role == "admin":
             upd["role"] = "admin"
         await db.users.update_one({"user_id": user_id}, {"$set": upd})
     else:
         user_id = f"user_{uuid.uuid4().hex[:12]}"
         await db.users.insert_one({"user_id": user_id, "email": email, "name": data.get("name"),
-                                   "picture": data.get("picture"), "role": role, "created_at": now()})
-    token = data["session_token"]
-    await db.user_sessions.update_one(
-        {"session_token": token},
-        {"$set": {"session_token": token, "user_id": user_id, "expires_at": now() + timedelta(days=7), "created_at": now()}},
-        upsert=True,
-    )
+                                   "picture": data.get("picture"), "role": role, "created_at": now(), "auth_provider": "emergent"})
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    return {"session_token": token, "user": public_user(user)}
+    return await identity.issue_session(user)
 
 
 @api.get("/auth/me")
@@ -147,9 +211,12 @@ async def auth_me(user: dict = Depends(current_user)):
 
 @api.post("/auth/logout")
 async def auth_logout(request: Request):
+    if getattr(request.state, "browser", False):
+        return await browser_sessions.logout(request)
     auth = request.headers.get("Authorization", "")
     if auth.lower().startswith("bearer "):
-        await db.user_sessions.delete_one({"session_token": auth[7:].strip()})
+        token = auth[7:].strip()
+        await db.user_sessions.delete_one({"session_token": {"$in": [token, "sha256:" + hashlib.sha256(token.encode()).hexdigest()]}, "transport": {"$ne": "browser"}})
     return {"ok": True}
 
 
@@ -185,7 +252,8 @@ async def meta(city: str = "ujjain"):
 
 
 # ------------------------------------------------------------------ properties
-async def enrich(props: List[dict], user: Optional[dict] = None) -> List[dict]:
+async def enrich(props: List[dict], user: Optional[dict] = None, *, cutoff: Optional[datetime] = None) -> List[dict]:
+    cutoff = cutoff if cutoff is not None else now()
     loc_ids = list({p["locality_id"] for p in props})
     locs = {l["id"]: l async for l in db.localities.find({"id": {"$in": loc_ids}}, {"_id": 0})}
     zone_ids = list({l.get("zone_id") for l in locs.values() if l.get("zone_id")})
@@ -196,6 +264,7 @@ async def enrich(props: List[dict], user: Optional[dict] = None) -> List[dict]:
     out = []
     for p in props:
         d = clean(p)
+        d["featured"] = effective_featured(p, cutoff)
         for k in ("demo_key", "owner_user_id", "photo_hashes", "duplicate_flags", "moderation", "moderation_history", "owner_declaration", "photo_ids"):
             d.pop(k, None)
         l = locs.get(p["locality_id"])
@@ -223,9 +292,9 @@ async def search_properties(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=50),
 ):
+    cutoff = now()
     city = await get_city()
-    await db.properties.update_many({"featured": True, "featured_until": {"$ne": None, "$lt": now()}}, {"$set": {"featured": False}})
-    flt: dict = {"listing_status": "active", "city_id": city["id"]}
+    flt: dict = {"$and": [public_property_filter(SEED_DEMO)], "city_id": city["id"]}
     if purpose:
         flt["purpose"] = purpose
     if segment:
@@ -280,16 +349,23 @@ async def search_properties(
                 vals.append({"bhk": int(b)})
         if vals:
             flt.setdefault("$and", []).append({"$or": vals})
-    sort_spec = {"newest": [("featured", -1), ("created_at", -1)], "price_asc": [("price", 1)], "price_desc": [("price", -1)]}[sort]
+    sort_spec = {"newest": [("featured", -1), ("created_at", -1), ("id", 1)], "price_asc": [("price", 1), ("id", 1)], "price_desc": [("price", -1), ("id", 1)]}[sort]
     total = await db.properties.count_documents(flt)
-    docs = await db.properties.find(flt, {"_id": 0}).sort(sort_spec).skip((page - 1) * limit).limit(limit).to_list(limit)
+    if sort == "newest":
+        docs = await db.properties.aggregate([
+            {"$match": flt}, featured_projection(cutoff),
+            {"$sort": dict(sort_spec)}, {"$skip": (page - 1) * limit},
+            {"$limit": limit}, {"$project": {"_id": 0}},
+        ]).to_list(limit)
+    else:
+        docs = await db.properties.find(flt, {"_id": 0}).sort(sort_spec).skip((page - 1) * limit).limit(limit).to_list(limit)
     user = await current_user_optional(request)
-    return {"items": await enrich(docs, user), "total": total, "page": page, "limit": limit}
+    return {"items": await enrich(docs, user, cutoff=cutoff), "total": total, "page": page, "limit": limit}
 
 
 @api.get("/properties/{prop_id}")
 async def property_detail(prop_id: str, request: Request):
-    p = await db.properties.find_one({"id": prop_id, "listing_status": "active"}, {"_id": 0})
+    p = await db.properties.find_one({"id": prop_id, **public_property_filter(SEED_DEMO)}, {"_id": 0})
     if not p:
         raise HTTPException(404, "Property not found")
     user = await current_user_optional(request)
@@ -300,7 +376,7 @@ async def property_detail(prop_id: str, request: Request):
 @api.get("/saved")
 async def list_saved(user: dict = Depends(current_user)):
     ids = [s["property_id"] async for s in db.saved.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1)]
-    docs = await db.properties.find({"id": {"$in": ids}, "listing_status": "active"}, {"_id": 0}).to_list(200)
+    docs = await db.properties.find({"id": {"$in": ids}, **public_property_filter(SEED_DEMO)}, {"_id": 0}).to_list(200)
     order = {pid: i for i, pid in enumerate(ids)}
     docs.sort(key=lambda d: order.get(d["id"], 0))
     return {"items": await enrich(docs, user)}
@@ -308,7 +384,7 @@ async def list_saved(user: dict = Depends(current_user)):
 
 @api.post("/saved/{prop_id}")
 async def save_prop(prop_id: str, user: dict = Depends(current_user)):
-    if not await db.properties.find_one({"id": prop_id, "listing_status": "active"}):
+    if not await db.properties.find_one({"id": prop_id, **public_property_filter(SEED_DEMO)}):
         raise HTTPException(404, "Property not found")
     await db.saved.update_one({"user_id": user["user_id"], "property_id": prop_id},
                               {"$setOnInsert": {"created_at": now()}}, upsert=True)
@@ -354,7 +430,7 @@ class EnquiryIn(BaseModel):
 
 @api.post("/enquiries")
 async def create_enquiry(body: EnquiryIn, user: dict = Depends(current_user)):
-    p = await db.properties.find_one({"id": body.property_id, "listing_status": "active"}, {"_id": 0})
+    p = await db.properties.find_one({"id": body.property_id, **public_property_filter(SEED_DEMO)}, {"_id": 0})
     if not p:
         raise HTTPException(404, "Property not found")
     if p.get("owner_user_id") == user["user_id"]:
@@ -588,11 +664,21 @@ async def root():
 
 import marketplace  # noqa: E402  (needs the helpers above)
 import extras  # noqa: E402
+import identity  # noqa: E402
+import browser_sessions  # noqa: E402
 
 app.include_router(api)
 app.include_router(marketplace.router)
 app.include_router(extras.router)
-app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.include_router(identity.router)
+app.include_router(browser_sessions.router)
+cors_origins = [v.strip() for v in os.getenv("CORS_ORIGINS", "http://localhost:8081,http://localhost:19006").split(",") if v.strip()]
+if PRODUCTION and (not os.getenv("CORS_ORIGINS") or not cors_origins or "*" in cors_origins):
+    raise RuntimeError("Production requires explicit CORS_ORIGINS")
+web_origins = browser_sessions.origins()
+if "*" in cors_origins:
+    raise RuntimeError("Credentialed CORS requires explicit origins")
+app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=list(set(cors_origins + web_origins)), allow_methods=["GET", "HEAD", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"], allow_headers=["Content-Type", "Authorization", "X-LV-Client", "X-CSRF-Token"])
 
 
 async def seed_test_sessions():
@@ -608,21 +694,23 @@ async def seed_test_sessions():
 
 @app.on_event("startup")
 async def startup():
+    try:
+        await db.command("ping")
+    except PyMongoError as exc:
+        category = error_category(exc)
+        logger.error("Database startup ping failed: %s (%s)", category, type(exc).__name__)
+        raise RuntimeError(f"Database unavailable ({category}); check Atlas access and configuration privately") from None
+    if os.getenv("IDENTITY_ENABLED", "false").lower() == "true":
+        identity.otp_secret()
+        await identity.require_identity()
+    # Existing databases are never seeded or rewritten merely by starting the API.
+    if os.getenv("SEED_ON_STARTUP", "false").lower() != "true":
+        return
     rep = await seed_all(db, include_demo=SEED_DEMO)
     logger.info("Seed report: inserted=%s skipped=%s unresolved=%s", rep["inserted"], rep["skipped_duplicates"], rep["unresolved_localities"])
     await marketplace.seed_marketplace()
     if SEED_TEST_SESSIONS:
         await seed_test_sessions()
-    else:
-        # Production safety: remove any dev test accounts/sessions if they exist.
-        test_ids = ["user_testbuyer01", "user_testadmin01", "user_testowner01", "user_testbroker01"]
-        await db.user_sessions.delete_many({"$or": [{"user_id": {"$in": test_ids}}, {"session_token": {"$regex": "^test_session_"}}]})
-        await db.users.delete_many({"user_id": {"$in": test_ids}})
-    # Demo listings are only visible when SEED_DEMO_LISTINGS=true.
-    if SEED_DEMO:
-        await db.properties.update_many({"is_demo": True, "listing_status": "demo_hidden"}, {"$set": {"listing_status": "active"}})
-    else:
-        await db.properties.update_many({"is_demo": True, "listing_status": "active"}, {"$set": {"listing_status": "demo_hidden", "featured": False}})
 
 
 @app.on_event("shutdown")

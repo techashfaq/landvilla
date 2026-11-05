@@ -13,16 +13,19 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Literal, Optional
 
+import boto3
 import httpx
 import requests
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
-from server import admin_user, aware, clean, current_user, current_user_optional, db, enrich, logger, now
+from server import admin_user, aware, clean, current_user, current_user_optional, user_for_token, db, enrich, logger, now
 
 router = APIRouter(prefix="/api")
 
@@ -35,6 +38,7 @@ MODERATION_DISCLAIMER = ("Listing moderation by LANDVILLA is not a guarantee of 
                          "Buyers must do their own legal due diligence.")
 
 _storage_key: Optional[str] = None
+_r2_s3 = None
 
 
 def uid(prefix: str) -> str:
@@ -46,36 +50,161 @@ def _init_storage() -> str:
     global _storage_key
     if _storage_key:
         return _storage_key
-    r = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": os.environ["EMERGENT_LLM_KEY"]}, timeout=30)
-    r.raise_for_status()
-    _storage_key = r.json()["storage_key"]
-    return _storage_key
+    key = os.getenv("EMERGENT_LLM_KEY", "").strip()
+    if not key:
+        raise HTTPException(503, "Legacy Emergent storage is not configured")
+    try:
+        r = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": key}, timeout=30)
+        r.raise_for_status()
+        _storage_key = r.json()["storage_key"]
+        return _storage_key
+    except requests.RequestException:
+        raise HTTPException(503, "Legacy storage unavailable")
+    except (ValueError, KeyError):
+        raise HTTPException(503, "Legacy storage initialization failed")
 
 
-def _put(path: str, data: bytes, ctype: str) -> dict:
+def _r2_client():
+    global _r2_s3
+    if _r2_s3 is not None:
+        return _r2_s3
+
+    endpoint = os.getenv("S3_ENDPOINT", "").strip()
+    bucket = os.getenv("S3_BUCKET", "").strip()
+    access_key = os.getenv("S3_ACCESS_KEY_ID", "").strip()
+    secret_key = os.getenv("S3_SECRET_ACCESS_KEY", "").strip()
+
+    if not all((endpoint, bucket, access_key, secret_key)):
+        raise HTTPException(503, "Cloudflare R2 storage is not fully configured")
+
+    try:
+        _r2_s3 = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=os.getenv("S3_REGION", "auto").strip() or "auto",
+            config=Config(
+                signature_version="s3v4",
+                retries={"max_attempts": 3, "mode": "standard"},
+                connect_timeout=10,
+                read_timeout=60,
+            ),
+        )
+        return _r2_s3
+    except (BotoCoreError, ValueError):
+        raise HTTPException(503, "Cloudflare R2 client initialization failed")
+
+
+def _put(path: str, data: bytes, ctype: str, provider: Optional[str] = None) -> dict:
+    provider = (provider or os.getenv("STORAGE_PROVIDER", "emergent")).strip().lower()
+
+    if provider == "cloudflare_r2":
+        try:
+            _r2_client().put_object(
+                Bucket=os.environ["S3_BUCKET"].strip(),
+                Key=path,
+                Body=data,
+                ContentType=ctype,
+            )
+            return {"path": path}
+        except HTTPException:
+            raise
+        except (BotoCoreError, ClientError):
+            logger.error("r2_upload_failed")
+            raise HTTPException(503, "Cloudflare R2 upload failed") from None
+
+    if provider != "emergent":
+        raise HTTPException(503, "Unsupported storage provider")
+
     global _storage_key
     for attempt in range(2):
-        r = requests.put(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": _init_storage(), "Content-Type": ctype}, data=data, timeout=120)
+        try:
+            r = requests.put(
+                f"{STORAGE_URL}/objects/{path}",
+                headers={"X-Storage-Key": _init_storage(), "Content-Type": ctype},
+                data=data,
+                timeout=120,
+            )
+        except requests.RequestException:
+            raise HTTPException(503, "Legacy storage unavailable")
+
         if r.status_code == 503 and attempt == 0:
             _storage_key = None
             continue
         if r.status_code == 402:
             raise HTTPException(402, "Storage quota exhausted. Please try again later.")
-        r.raise_for_status()
-        return r.json()
-    raise HTTPException(503, "Storage unavailable")
+        try:
+            r.raise_for_status()
+            return r.json()
+        except (requests.RequestException, ValueError):
+            raise HTTPException(503, "Legacy storage upload failed")
+
+    raise HTTPException(503, "Legacy storage unavailable")
 
 
-def _get(path: str):
+def _delete_r2_object(path: str) -> None:
+    """Best-effort cleanup for an R2 object when metadata persistence fails."""
+    try:
+        _r2_client().delete_object(
+            Bucket=os.environ["S3_BUCKET"].strip(),
+            Key=path,
+        )
+    except Exception:
+        logger.error("r2_cleanup_failed")
+
+
+def _get(path: str, provider: str = "emergent"):
+    provider = (provider or "emergent").strip().lower()
+
+    if provider == "cloudflare_r2":
+        try:
+            result = _r2_client().get_object(
+                Bucket=os.environ["S3_BUCKET"].strip(),
+                Key=path,
+            )
+            response_body = result["Body"]
+            try:
+                body = response_body.read()
+                return body, result.get("ContentType", "application/octet-stream")
+            finally:
+                response_body.close()
+        except HTTPException:
+            raise
+        except ClientError as exc:
+            code = str(exc.response.get("Error", {}).get("Code", ""))
+            if code in ("NoSuchKey", "404", "NotFound"):
+                raise HTTPException(404, "Stored file not found")
+            logger.error("r2_download_failed")
+            raise HTTPException(503, "Cloudflare R2 download failed") from None
+        except (BotoCoreError, KeyError):
+            logger.error("r2_download_failed")
+            raise HTTPException(503, "Cloudflare R2 download failed") from None
+
+    if provider != "emergent":
+        raise HTTPException(503, "Unsupported storage provider")
+
     global _storage_key
     for attempt in range(2):
-        r = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": _init_storage()}, timeout=60)
+        try:
+            r = requests.get(
+                f"{STORAGE_URL}/objects/{path}",
+                headers={"X-Storage-Key": _init_storage()},
+                timeout=60,
+            )
+        except requests.RequestException:
+            raise HTTPException(503, "Legacy storage unavailable")
+
         if r.status_code == 503 and attempt == 0:
             _storage_key = None
             continue
-        r.raise_for_status()
-        return r.content, r.headers.get("Content-Type", "application/octet-stream")
-    raise HTTPException(503, "Storage unavailable")
+        try:
+            r.raise_for_status()
+            return r.content, r.headers.get("Content-Type", "application/octet-stream")
+        except requests.RequestException:
+            raise HTTPException(503, "Legacy storage download failed")
+
+    raise HTTPException(503, "Legacy storage unavailable")
 
 
 UPLOAD_RULES = {
@@ -83,6 +212,11 @@ UPLOAD_RULES = {
     "broker_doc": ({"image/jpeg", "image/png", "image/webp", "application/pdf"}, 10 * 1024 * 1024, False),
 }
 EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf"}
+
+
+def valid_file_signature(data: bytes, content_type: str) -> bool:
+    return {"image/jpeg": data.startswith(b"\xff\xd8\xff"), "image/png": data.startswith(b"\x89PNG\r\n\x1a\n"),
+            "image/webp": data.startswith(b"RIFF") and data[8:12] == b"WEBP", "application/pdf": data.startswith(b"%PDF-")}.get(content_type, False)
 
 
 @router.post("/uploads")
@@ -95,18 +229,28 @@ async def upload_file(file: UploadFile = File(...), kind: str = Form(...), user:
         ctype = "image/jpeg"
     if ctype not in allowed:
         raise HTTPException(400, "Unsupported file type")
-    data = await file.read()
+    data = await file.read(max_size + 1)
     if not data:
         raise HTTPException(400, "Empty file")
     if len(data) > max_size:
         raise HTTPException(400, f"File too large (max {max_size // (1024 * 1024)} MB)")
+    if not valid_file_signature(data, ctype):
+        raise HTTPException(400, "File content does not match its type")
     fid = uid("file")
     path = f"{APP_NAME}/{'photos' if is_public else 'private'}/{user['user_id']}/{fid}.{EXT[ctype]}"
-    res = await run_in_threadpool(_put, path, data, ctype)
-    doc = {"id": fid, "owner_id": user["user_id"], "kind": kind, "is_public": is_public, "storage_path": res["path"],
+    provider = os.getenv("STORAGE_PROVIDER", "emergent").strip().lower()
+    res = await run_in_threadpool(_put, path, data, ctype, provider)
+    doc = {"id": fid, "owner_id": user["user_id"], "kind": kind, "is_public": is_public,
+           "storage_provider": provider, "storage_path": res["path"],
            "content_type": ctype, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
            "original_name": (file.filename or "")[:120], "is_deleted": False, "created_at": now()}
-    await db.files.insert_one(doc)
+    try:
+        await db.files.insert_one(doc)
+    except Exception:
+        if provider == "cloudflare_r2":
+            await run_in_threadpool(_delete_r2_object, path)
+        logger.error("upload_metadata_failed")
+        raise HTTPException(503, "Upload metadata unavailable") from None
     return {"id": fid, "url": f"/api/files/{fid}", "kind": kind, "content_type": ctype}
 
 
@@ -117,16 +261,14 @@ async def get_file(file_id: str, request: Request, token: Optional[str] = None):
         raise HTTPException(404, "File not found")
     if not f["is_public"]:
         user = await current_user_optional(request)
-        if not user and token:
-            sess = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
-            if sess and aware(sess["expires_at"]) > now():
-                user = await db.users.find_one({"user_id": sess["user_id"]}, {"_id": 0})
+        if not user and token and not getattr(request.state, "browser", False):
+            user = await user_for_token(token)
         if not user or (user["user_id"] != f["owner_id"] and user.get("role") != "admin"):
             raise HTTPException(403, "Not allowed")
         if user.get("role") == "admin" and user["user_id"] != f["owner_id"]:
             await db.audit_logs.insert_one({"id": uid("aud"), "actor": user["user_id"], "action": "file.view_private",
                                             "target": file_id, "details": {}, "created_at": now()})
-    data, ctype = await run_in_threadpool(_get, f["storage_path"])
+    data, ctype = await run_in_threadpool(_get, f["storage_path"], f.get("storage_provider", "emergent"))
     cache = "public, max-age=86400" if f["is_public"] else "private, no-store"
     return Response(content=data, media_type=f["content_type"] or ctype, headers={"Cache-Control": cache})
 
@@ -184,6 +326,7 @@ async def broker_apply(body: BrokerApplyIn, user: dict = Depends(current_user)):
 
 # ------------------------------------------------------------------ listings (owner / broker)
 class ListingIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     posted_as: Literal["owner", "broker"]
     title_en: str = Field(min_length=5, max_length=100)
     title_hi: Optional[str] = Field(default="", max_length=100)
@@ -201,6 +344,13 @@ class ListingIn(BaseModel):
     amenities: List[str] = []
     photo_ids: List[str] = Field(min_length=1, max_length=10)
     owner_declaration_accepted: bool
+    currency: Literal["INR"] = "INR"
+    city: Literal["Ujjain"] = "Ujjain"
+    state: Literal["Madhya Pradesh"] = "Madhya Pradesh"
+    postal_code: Optional[str] = Field(default=None, pattern=r"^[1-9]\d{5}$")
+    address: str = Field(default="", max_length=300)
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
 
 
 async def validate_listing(body: ListingIn, user: dict):
@@ -269,6 +419,8 @@ def listing_doc_from(body: ListingIn, files: List[dict]) -> dict:
         "furnishing": body.furnishing, "amenities": list(dict.fromkeys(body.amenities)),
         "images": [f"/api/files/{f['id']}" for f in files], "photo_ids": [f["id"] for f in files],
         "photo_hashes": [f["sha256"] for f in files], "posted_by_role": body.posted_as,
+        "currency": body.currency, "city": body.city, "state": body.state, "postal_code": body.postal_code,
+        "address": body.address, "latitude": body.latitude, "longitude": body.longitude,
     }
 
 
@@ -294,8 +446,10 @@ async def create_listing(body: ListingIn, user: dict = Depends(current_user)):
 
 
 @router.get("/listings/mine")
-async def my_listings(user: dict = Depends(current_user)):
-    docs = await db.properties.find({"owner_user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+async def my_listings(user: dict = Depends(current_user), page: int = Query(1, ge=1), limit: int = Query(200, ge=1, le=200)):
+    flt = {"owner_user_id": user["user_id"]}
+    total = await db.properties.count_documents(flt)
+    docs = await db.properties.find(flt, {"_id": 0}).sort([("created_at", -1), ("id", 1)]).skip((page - 1) * limit).limit(limit).to_list(limit)
     out = await enrich(docs)
     for o, d in zip(out, docs):
         o["listing_status"] = d["listing_status"]
@@ -307,7 +461,7 @@ async def my_listings(user: dict = Depends(current_user)):
     leads = {x["_id"]: x["n"] async for x in db.enquiries.aggregate([{"$match": {"lister_user_id": user["user_id"]}}, {"$group": {"_id": "$property_id", "n": {"$sum": 1}}}])}
     for o in out:
         o["lead_count"] = leads.get(o["id"], 0)
-    return {"items": out}
+    return {"items": out, "page": page, "limit": limit, "total": total}
 
 
 @router.get("/listings/{prop_id}/edit")
@@ -634,6 +788,8 @@ def rzp_keys():
     kid, secret = os.environ.get("RAZORPAY_KEY_ID", "").strip(), os.environ.get("RAZORPAY_KEY_SECRET", "").strip()
     if not kid or not secret:
         raise HTTPException(503, "Payments are not configured yet")
+    if not kid.startswith("rzp_test_") and os.getenv("ALLOW_LIVE_PAYMENTS", "false").lower() != "true":
+        raise HTTPException(503, "Live payments are disabled")
     return kid, secret
 
 
@@ -645,6 +801,8 @@ def rzp_mode(kid: str) -> str:
 async def featured_plans():
     docs = await db.featured_plans.find({"is_active": True}, {"_id": 0}).sort("order", 1).to_list(20)
     configured = bool(os.environ.get("RAZORPAY_KEY_ID", "").strip() and os.environ.get("RAZORPAY_KEY_SECRET", "").strip())
+    if configured and not os.environ["RAZORPAY_KEY_ID"].startswith("rzp_test_") and os.getenv("ALLOW_LIVE_PAYMENTS", "false").lower() != "true":
+        configured = False
     mode = rzp_mode(os.environ.get("RAZORPAY_KEY_ID", "")) if configured else None
     return {"items": [clean(d) for d in docs], "payments_configured": configured, "mode": mode}
 
@@ -687,19 +845,24 @@ async def create_featured_order(body: OrderIn, request: Request, user: dict = De
 
 
 async def fulfil(order: dict, payment_id: str, source: str) -> dict:
-    """Idempotent: only the first transition to 'paid' extends featured time."""
-    upd = await db.payment_orders.find_one_and_update(
-        {"id": order["id"], "status": {"$ne": "paid"}},
-        {"$set": {"status": "paid", "razorpay_payment_id": payment_id, "paid_at": now(), "paid_via": source, "updated_at": now()}},
-        return_document=ReturnDocument.AFTER)
-    if not upd:
-        return await db.payment_orders.find_one({"id": order["id"]}, {"_id": 0})
-    p = await db.properties.find_one({"id": order["property_id"]}, {"_id": 0})
-    start = aware(p.get("featured_until")) if p and p.get("featured_until") and aware(p["featured_until"]) > now() else now()
-    until = start + timedelta(days=order["duration_days"])
-    await db.properties.update_one({"id": order["property_id"]}, {"$set": {"featured": True, "featured_until": until, "updated_at": now()}})
-    await db.payment_orders.update_one({"id": order["id"]}, {"$set": {"featured_until": until}})
-    return await db.payment_orders.find_one({"id": order["id"]}, {"_id": 0})
+    """Atomic order + entitlement update. Requires Atlas or a replica set."""
+    async def transaction(session):
+        existing = await db.payment_orders.find_one({"id": order["id"]}, {"_id": 0}, session=session)
+        if not existing:
+            raise HTTPException(404, "Payment order unavailable")
+        if existing["status"] in ("paid", "refunded"):
+            return existing
+        p = await db.properties.find_one({"id": existing["property_id"]}, {"_id": 0}, session=session)
+        if not p or p.get("listing_status") != "active":
+            raise HTTPException(409, "Listing is no longer eligible; payment requires reconciliation")
+        start = max(aware(p.get("featured_until")) or now(), now())
+        until = start + timedelta(days=existing["duration_days"])
+        await db.properties.update_one({"id": p["id"]}, {"$set": {"featured": True, "featured_until": until, "updated_at": now()}}, session=session)
+        await db.payment_orders.update_one({"id": existing["id"]}, {"$set": {"status": "paid", "razorpay_payment_id": payment_id,
+            "paid_at": now(), "paid_via": source, "featured_until": until, "updated_at": now()}}, session=session)
+        return await db.payment_orders.find_one({"id": existing["id"]}, {"_id": 0}, session=session)
+    async with await db.client.start_session() as session:
+        return await session.with_transaction(transaction)
 
 
 class VerifyPayIn(BaseModel):
@@ -709,7 +872,7 @@ class VerifyPayIn(BaseModel):
 
 
 def pay_view(o: dict) -> dict:
-    return {k: clean(o).get(k) for k in ("id", "property_id", "plan_slug", "amount", "status", "mode", "featured_until", "created_at", "paid_at", "failure_reason")}
+    return {k: clean(o).get(k) for k in ("id", "property_id", "plan_slug", "amount", "status", "mode", "featured_until", "created_at", "paid_at", "failure_reason", "razorpay_order_id", "razorpay_payment_id", "refund_status")}
 
 
 @router.post("/payments/featured/verify")
@@ -730,7 +893,7 @@ async def verify_featured(body: VerifyPayIn, user: dict = Depends(current_user))
     pay = r.json()
     if pay.get("order_id") != order["razorpay_order_id"] or int(pay.get("amount", 0)) != order["amount"] or pay.get("currency") != "INR":
         raise HTTPException(400, "Payment does not match order")
-    if pay.get("status") not in ("captured", "authorized"):
+    if pay.get("status") != "captured":
         if pay.get("status") == "failed":
             await db.payment_orders.update_one({"id": order["id"], "status": {"$ne": "paid"}}, {"$set": {"status": "failed", "failure_reason": pay.get("error_description"), "updated_at": now()}})
             raise HTTPException(400, "Payment failed")
@@ -773,20 +936,51 @@ async def razorpay_webhook(request: Request):
     if not hmac.compare_digest(hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest(), sig):
         raise HTTPException(400, "Invalid signature")
     event_id = request.headers.get("x-razorpay-event-id") or hashlib.sha256(raw).hexdigest()
-    try:
-        await db.payment_webhook_events.insert_one({"event_id": event_id, "received_at": now()})
-    except DuplicateKeyError:
+    previous = await db.payment_webhook_events.find_one({"event_id": event_id, "processed": True})
+    if previous:
         return {"ok": True, "duplicate": True}
-    payload = json.loads(raw)
+    try:
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Invalid webhook payload") from None
     event = payload.get("event")
-    entity = (payload.get("payload", {}).get("payment") or {}).get("entity") or {}
+    data = payload.get("payload")
+    if not isinstance(data, dict):
+        raise HTTPException(400, "Invalid webhook payload")
+    wrapped = data.get("payment") or {}
+    entity = wrapped.get("entity") if isinstance(wrapped, dict) else None
+    entity = entity or {}
+    if not isinstance(entity, dict):
+        raise HTTPException(400, "Invalid payment entity")
     order = await db.payment_orders.find_one({"razorpay_order_id": entity.get("order_id")}, {"_id": 0}) if entity else None
-    if order and event in ("payment.captured", "payment.authorized", "order.paid"):
-        if int(entity.get("amount", 0)) == order["amount"] and entity.get("currency") == "INR":
-            await fulfil(order, entity["id"], "webhook")
+    if order and order.get("mode") == "live" and os.getenv("ALLOW_LIVE_PAYMENTS", "false").lower() != "true":
+        raise HTTPException(503, "Live payments are disabled")
+    if order and event in ("payment.captured", "order.paid") and entity.get("status") == "captured":
+        if entity.get("amount") != order["amount"] or entity.get("currency") != "INR" or not entity.get("id"):
+            raise HTTPException(400, "Payment does not match order")
+        await fulfil(order, entity["id"], "webhook")
     elif order and event == "payment.failed":
         await db.payment_orders.update_one({"id": order["id"], "status": {"$in": ["created", "pending"]}},
                                            {"$set": {"status": "failed", "failure_reason": entity.get("error_description"), "updated_at": now()}})
+    elif event == "refund.processed":
+        wrapped_refund = data.get("refund") or {}
+        refund = wrapped_refund.get("entity") if isinstance(wrapped_refund, dict) else None
+        if not isinstance(refund, dict) or not refund.get("payment_id") or not refund.get("id"):
+            raise HTTPException(400, "Invalid refund entity")
+        refunded_order = await db.payment_orders.find_one({"razorpay_payment_id": refund["payment_id"]}, {"_id": 0})
+        if refunded_order:
+            if refunded_order.get("mode") == "live" and os.getenv("ALLOW_LIVE_PAYMENTS", "false").lower() != "true":
+                raise HTTPException(503, "Live payments are disabled")
+            # Preserve overlapping paid entitlements; an administrator reconciles partial/full refunds.
+            await db.payment_orders.update_one({"id": refunded_order["id"]}, {"$set": {
+                "refund_status": "processed_requires_review", "refund_id": refund["id"], "refund_amount": refund.get("amount"), "updated_at": now()}})
+    # Record completion only after processing succeeds; failed processing remains retryable.
+    try:
+        await db.payment_webhook_events.update_one({"event_id": event_id}, {"$set": {"processed": True, "processed_at": now()}}, upsert=True)
+    except DuplicateKeyError:
+        pass
     return {"ok": True}
 
 

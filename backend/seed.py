@@ -59,6 +59,17 @@ async def m001_indexes(db):
     await db.saved.create_index([("user_id", ASCENDING), ("property_id", ASCENDING)], unique=True)
 
 
+async def m002_identity_indexes(db):
+    # Run explicitly after inspecting existing duplicate contacts; never delete records to resolve conflicts.
+    await db.users.create_index("mobile", unique=True, partialFilterExpression={"mobile": {"$type": "string"}})
+    await db.users.create_index("google_sub", unique=True, partialFilterExpression={"google_sub": {"$type": "string"}})
+    await db.otp_challenges.create_index("challenge_id", unique=True)
+    await db.otp_challenges.create_index("expires_at", expireAfterSeconds=0)
+    await db.auth_limits.create_index("expires_at", expireAfterSeconds=0)
+
+
+# Identity indexes are opt-in: only scripts/apply_identity_indexes.py provisions
+# migration 002 after explicit environment/database checks and confirmation.
 MIGRATIONS = [("001_indexes", m001_indexes)]
 
 
@@ -90,6 +101,8 @@ async def _upsert_simple(db, coll, items, report_key, report, extra=None):
 
 
 async def seed_all(db, include_demo: bool = False) -> dict:
+    if include_demo and os.getenv("APP_ENV", "development").lower() == "production":
+        raise ValueError("Fictional demo seeding is disabled in production")
     report = {"ran_at": now().isoformat(), "migrations_applied": [], "inserted": {}, "skipped_duplicates": {},
               "candidate_resolution": [], "unresolved_localities": [], "zone_unresolved": [], "notes": []}
     report["migrations_applied"] = await run_migrations(db)
@@ -207,6 +220,12 @@ async def seed_all(db, include_demo: bool = False) -> dict:
     else:
         report["notes"].append("Demo listings NOT seeded (SEED_DEMO_LISTINGS is not true).")
 
+    report["demo_inventory"] = {
+        "total": await db.properties.count_documents({"is_demo": True}),
+        "active": await db.properties.count_documents({"is_demo": True, "listing_status": "active"}),
+        "legacy_hidden": await db.properties.count_documents({"is_demo": True, "listing_status": "demo_hidden"}),
+        "visibility_enabled": os.getenv("SEED_DEMO_LISTINGS", "false").lower() == "true",
+    }
     await db.seed_reports.insert_one({**report})
     report.pop("_id", None)
     return report

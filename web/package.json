@@ -1,0 +1,29 @@
+{
+  "name": "landvilla-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "dev": "next dev --hostname localhost --port 19006",
+    "build": "next build",
+    "start": "next start --hostname localhost --port 19006",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "node --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "next": "16.4.3",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "server-only": "0.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.2.2",
+    "eslint": "9.39.1",
+    "eslint-config-next": "16.4.3",
+    "typescript": "6.0.3"
+  }
+}

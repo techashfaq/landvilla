@@ -2,10 +2,13 @@ import { Ionicons } from "@react-native-vector-icons/ionicons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
-import { ActivityIndicator, FlatList, Linking, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, fileUrl } from "@/src/api";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
+
+import { api, fileUrl, getApiToken } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { Sheet } from "@/src/components/Sheet";
 import { useToast } from "@/src/components/Toast";
@@ -36,10 +39,73 @@ export default function AdminBrokers() {
 
   if (user?.role !== "admin") return <View style={[styles.screen, { paddingTop: insets.top + 40 }]}><EmptyState icon="lock-closed-outline" title="Admin access required" cta="Go back" onPress={() => router.back()} testID="admin-denied" /></View>;
 
-  const openDoc = (url: string) => {
-    const u = fileUrl(url, true);
-    if (Platform.OS === "web") window.open(u, "_blank");
-    else Linking.openURL(u);
+  const openDoc = async (doc: { url: string; id: string; content_type?: string }) => {
+    const url = doc?.url || "";
+
+    if (!url.startsWith("/api/files/") || url.startsWith("//")) {
+      toast.show("Invalid document URL", "error");
+      return;
+    }
+
+    if (Platform.OS === "web") {
+      const webUrl = fileUrl(url);
+      if (webUrl) window.open(webUrl, "_blank", "noopener,noreferrer");
+      else toast.show("Backend URL is not configured", "error");
+      return;
+    }
+
+    const token = getApiToken();
+    if (!token) {
+      toast.show("Please sign in again to view this document", "error");
+      return;
+    }
+
+    const downloadUrl = fileUrl(url);
+    const cacheDir = FileSystem.cacheDirectory;
+
+    if (!downloadUrl || !cacheDir) {
+      toast.show("Document download is unavailable", "error");
+      return;
+    }
+
+    const mimeType = doc.content_type || "application/octet-stream";
+    const extensionByType: Record<string, string> = {
+      "application/pdf": "pdf",
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+    };
+
+    const extension = extensionByType[mimeType];
+    if (!extension) {
+      toast.show("Unsupported document type", "error");
+      return;
+    }
+
+    const localUri = `${cacheDir}landvilla-broker-${doc.id}.${extension}`;
+
+    try {
+      const result = await FileSystem.downloadAsync(downloadUrl, localUri, {
+        headers: { Authorization: `Bearer ${token}` },
+
+      });
+
+      if (result.status < 200 || result.status >= 300) {
+        throw new Error(`Document download failed (${result.status})`);
+      }
+
+      if (!(await Sharing.isAvailableAsync())) {
+        throw new Error("File sharing is not available on this device");
+      }
+
+      await Sharing.shareAsync(result.uri, {
+        mimeType,
+        dialogTitle: "Open broker verification document",
+      });
+    } catch (error: any) {
+      console.error("Broker document download/open failed:", error);
+      toast.show(error?.message || "Unable to open document", "error");
+    }
   };
 
   return (
@@ -67,7 +133,7 @@ export default function AdminBrokers() {
               <Text style={styles.meta}>RERA: {b.rera_number || "not provided"} ({b.rera_status})</Text>
               {b.admin_note && <Text style={styles.meta}>Note: {b.admin_note}</Text>}
               {b.documents.map((d: any) => (
-                <Pressable key={d.id} style={styles.doc} onPress={() => openDoc(d.url)} testID={`broker-doc-${d.id}`}>
+                <Pressable key={d.id} style={styles.doc} onPress={() => openDoc(d)} testID={`broker-doc-${d.id}`}>
                   <Ionicons name="document-attach-outline" size={18} color={colors.brandPrimary} />
                   <Text style={styles.docText} numberOfLines={1}>{d.name || d.id}</Text>
                   <Ionicons name="open-outline" size={16} color={colors.muted} />
@@ -87,7 +153,7 @@ export default function AdminBrokers() {
         <View style={{ paddingHorizontal: 16, paddingBottom: 16, gap: 8 }}>
           <Text style={styles.meta}>{action?.item?.full_name}</Text>
           {action?.kind === "approve" && <Text style={styles.meta}>Identity approval only. RERA status remains as recorded unless separately verified.</Text>}
-          {action?.kind === "suspend" && <Text style={styles.meta}>Suspending unpublishes this broker's live broker listings.</Text>}
+          {action?.kind === "suspend" && <Text style={styles.meta}>Suspending unpublishes this broker&apos;s live broker listings.</Text>}
           <TextInput testID="broker-action-note" value={note} onChangeText={setNote} multiline placeholder={action?.kind === "approve" ? "Note (optional)" : "Reason (required)"} placeholderTextColor={colors.muted} style={styles.input} />
           {!!err && <Text style={styles.err} testID="broker-action-error">{err}</Text>}
         </View>

@@ -15,7 +15,7 @@ import { useTheme } from "@/src/theme";
 
 // Disable logbox errors etc so that users can see the app
 // and agent works as expected.
-LogBox.ignoreAllLogs(true);
+LogBox.ignoreAllLogs(false);
 
 export default function RootLayout() {
   const { colors } = useTheme();

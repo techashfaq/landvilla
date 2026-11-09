@@ -48,7 +48,7 @@ export default function AdminReports() {
             <View key={r.id} style={styles.card} testID={`report-${r.id}`}>
               <View style={{ flexDirection: "row", gap: 6 }}><Badge label={r.target_type.toUpperCase()} kind="muted" /><Badge label={r.reason.replace(/_/g, " ")} kind="demo" /></View>
               <Text style={styles.title}>{r.target_label}</Text>
-              {!!r.note && <Text style={styles.meta}>"{r.note}"</Text>}
+              {!!r.note && <Text style={styles.meta}>&quot;{r.note}&quot;</Text>}
               <Text style={styles.meta}>{new Date(r.created_at).toLocaleString("en-IN")}</Text>
               <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
                 <Button label="Dismiss" variant="outline" onPress={() => open(r.id, "dismiss")} testID={`report-dismiss-${r.id}`} />

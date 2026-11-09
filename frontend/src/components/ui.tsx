@@ -53,8 +53,8 @@ export function Button({
         testID={testID}
         disabled={disabled || loading}
         onPress={onPress}
-        onPressIn={() => (scale.value = withSpring(0.97))}
-        onPressOut={() => (scale.value = withSpring(1))}
+        onPressIn={() => scale.set(withSpring(0.97))}
+        onPressOut={() => scale.set(withSpring(1))}
         style={[styles.btn, variant === "outline" && styles.btnOutline, (disabled || loading) && { opacity: 0.6 }]}
       >
         {loading ? (

@@ -133,6 +133,8 @@ function LocalityForm({ mode, onClose, meta, all, loading, onSubmit }: { mode: M
   const [err, setErr] = useState("");
 
   React.useEffect(() => {
+    // Reset this persistent modal's draft when the selected editing operation changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNameEn(loc?.name_en ?? "");
     setNameHi(loc?.name_hi ?? "");
     setAliases(loc?.aliases.join(", ") ?? "");
@@ -200,7 +202,7 @@ function LocalityForm({ mode, onClose, meta, all, loading, onSubmit }: { mode: M
         )}
         {mode.kind === "merge" && (
           <>
-            <Text style={styles.help}>"{mode.loc.name_en}" will be deactivated. Its listings and aliases move to the locality you pick.</Text>
+            <Text style={styles.help}>&quot;{mode.loc.name_en}&quot; will be deactivated. Its listings and aliases move to the locality you pick.</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
               {all.filter((l) => l.is_active && l.id !== mode.loc.id).map((l) => (
                 <Chip key={l.id} label={l.name_en} selected={target === l.id} onPress={() => setTarget(l.id)} testID={`admin-merge-target-${l.slug}`} />
@@ -209,7 +211,7 @@ function LocalityForm({ mode, onClose, meta, all, loading, onSubmit }: { mode: M
           </>
         )}
         {mode.kind === "deactivate" && (
-          <Text style={styles.help}>"{mode.loc.name_en}" will be hidden from customer search and filters ({mode.loc.listing_count} listings). You can activate it again later.</Text>
+          <Text style={styles.help}>&quot;{mode.loc.name_en}&quot; will be hidden from customer search and filters ({mode.loc.listing_count} listings). You can activate it again later.</Text>
         )}
         {!!err && <Text style={styles.err} testID="admin-form-error">{err}</Text>}
       </ScrollView>

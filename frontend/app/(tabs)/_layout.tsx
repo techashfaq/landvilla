@@ -35,9 +35,9 @@ export default function TabsLayout() {
     );
   }
 
-  const icon = (on: any, off: any) => ({ color, focused }: { color: string; focused: boolean }) => (
+  const icon = (on: any, off: any) => function TabIcon({ color, focused }: { color: string; focused: boolean }) { return (
     <Ionicons name={focused ? on : off} size={24} color={color} />
-  );
+  ); };
 
   return (
     <Tabs

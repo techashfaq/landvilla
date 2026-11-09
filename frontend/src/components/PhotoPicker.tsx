@@ -4,7 +4,7 @@ import { Image } from "expo-image";
 import React, { useState } from "react";
 import { ActivityIndicator, Linking, Platform, Pressable, Text, View } from "react-native";
 
-import { API_BASE, fileUrl, getApiToken } from "@/src/api";
+import { API_BASE, fileUrl, authHeaders } from "@/src/api";
 import { useToast } from "@/src/components/Toast";
 import { useLang } from "@/src/i18n";
 import { fonts, makeStyles, useTheme } from "@/src/theme";
@@ -23,7 +23,7 @@ async function readError(res: Response) {
 
 export async function uploadFile(asset: { uri: string; fileName?: string | null; name?: string; mimeType?: string | null }, kind: string) {
   const res = await uploadForm(`${API_BASE}/uploads`, {
-    headers: { Authorization: `Bearer ${getApiToken()}` },
+    headers: await authHeaders(),
     fields: { kind },
     files: { file: { uri: asset.uri, name: asset.fileName || asset.name || "upload.jpg", mimeType: asset.mimeType || "image/jpeg" } },
   });
@@ -38,6 +38,7 @@ export function PhotoPicker({ photos, onChange, max = 10 }: { photos: Photo[]; o
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  const [progress, setProgress] = useState("");
 
   const pick = async () => {
     // Android uses the system Photo Picker, which needs no media permission.
@@ -61,6 +62,7 @@ export function PhotoPicker({ photos, onChange, max = 10 }: { photos: Photo[]; o
     const added: Photo[] = [];
     try {
       for (const a of r.assets.slice(0, max - photos.length)) {
+        setProgress(`Uploading ${added.length + 1} of ${Math.min(r.assets.length, max - photos.length)}`);
         const up = await uploadFile(a, "property_photo");
         added.push({ id: up.id, url: up.url });
       }
@@ -68,19 +70,22 @@ export function PhotoPicker({ photos, onChange, max = 10 }: { photos: Photo[]; o
       toast.show(e.message, "error");
     } finally {
       setBusy(false);
+      setProgress("");
       onChange([...photos, ...added]);
     }
   };
 
   return (
     <View>
+      {!!progress && <Text accessibilityLiveRegion="polite">{progress}</Text>}
       <Text style={styles.hint}>{tx("Add up to 10 clear photos. First photo is the cover. Use photos of this property only.", "10 तक साफ़ फ़ोटो जोड़ें। पहली फ़ोटो कवर होगी। केवल इसी प्रॉपर्टी की फ़ोटो लगाएँ।")}</Text>
       <View style={styles.grid}>
         {photos.map((p, i) => (
           <View key={p.id} style={styles.tile} testID={`photo-tile-${i}`}>
             <Image source={{ uri: fileUrl(p.url) }} style={styles.img} contentFit="cover" />
             {i === 0 && <Text style={styles.cover}>{tx("Cover", "कवर")}</Text>}
-            <Pressable testID={`photo-remove-${i}`} hitSlop={6} style={styles.remove} onPress={() => onChange(photos.filter((x) => x.id !== p.id))}>
+            {i > 0 && <Pressable disabled={busy} accessibilityLabel="Move photo earlier" style={{ position: "absolute", left: 4, top: 4, backgroundColor: "white", padding: 6 }} onPress={() => { const next = [...photos]; [next[i - 1], next[i]] = [next[i], next[i - 1]]; onChange(next); }}><Text>←</Text></Pressable>}
+            <Pressable disabled={busy} accessibilityLabel="Remove photo" testID={`photo-remove-${i}`} hitSlop={6} style={styles.remove} onPress={() => onChange(photos.filter((x) => x.id !== p.id))}>
               <Ionicons name="close" size={16} color={colors.onSurfaceInverse} />
             </Pressable>
           </View>

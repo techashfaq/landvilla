@@ -73,7 +73,7 @@ export default function LeadDetail() {
               </View>
             </>
           )}
-          {!!l.message && <Text style={styles.msg}>"{l.message}"</Text>}
+          {!!l.message && <Text style={styles.msg}>&quot;{l.message}&quot;</Text>}
           <Text style={styles.small}>{tx("Intent", "उद्देश्य")}: {l.intent.replace("_", " ")} · {new Date(l.created_at).toLocaleString(lang === "hi" ? "hi-IN" : "en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</Text>
         </View>
 

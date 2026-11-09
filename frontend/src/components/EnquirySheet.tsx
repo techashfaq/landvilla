@@ -26,6 +26,8 @@ export function EnquirySheet({ visible, onClose, propertyId }: { visible: boolea
 
   useEffect(() => {
     if (visible) {
+      // Reopening the persistent sheet resets validation and prefills the current account.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setName((n) => n || user?.name || "");
       setErrors({});
     }

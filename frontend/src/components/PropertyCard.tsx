@@ -1,12 +1,11 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
-import { Image } from "expo-image";
+import { PropertyImage } from "@/src/components/PropertyImage";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import React from "react";
 import { Pressable, Text, View } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 
-import { fileUrl } from "@/src/api";
 import { Badge } from "@/src/components/ui";
 import { formatPrice, Property, useToggleSave } from "@/src/data";
 import { useLang } from "@/src/i18n";
@@ -27,7 +26,7 @@ export function PropertyCard({ p, index = 0 }: { p: Property; index?: number }) 
         style={({ pressed }) => [styles.card, pressed && { transform: [{ scale: 0.985 }] }]}
       >
         <View style={styles.imgWrap}>
-          <Image source={{ uri: fileUrl(p.images[0]) }} style={styles.img} contentFit="cover" transition={250} />
+          <PropertyImage uri={p.images?.[0]} identity={p.id} style={styles.img} />
           <LinearGradient colors={["rgba(0,0,0,0.45)", "transparent"]} style={styles.scrim} />
           <View style={styles.badges}>
             {p.is_demo && <Badge label={t("demo")} kind="demo" testID={`demo-badge-${p.id}`} />}

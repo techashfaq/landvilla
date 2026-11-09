@@ -10,7 +10,9 @@ export type AssertNoExtras<T extends never> = T;
 
 export abstract class StorageBase {
   protected warn(op: string, key: StorageItemKey, e: unknown) {
-    console.warn(`[storage] ${op}(${key}) failed`, e);
+    void e;
+    // Storage exceptions can contain persisted values; never log their contents.
+    console.warn(`[storage] ${op}(${key}) failed`);
   }
 
   // raw is whatever AsyncStorage / SecureStore returned: a JSON-encoded string

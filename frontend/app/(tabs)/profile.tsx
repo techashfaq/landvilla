@@ -20,7 +20,7 @@ export default function Profile() {
   const styles = useStyles();
   const { colors } = useTheme();
   const { t, lang, setLang, tx } = useLang();
-  const { user, logout } = useAuth();
+  const { user, logout, error: authError } = useAuth();
   const router = useRouter();
   const toast = useToast();
   const [delOpen, setDelOpen] = useState(false);
@@ -55,6 +55,9 @@ export default function Profile() {
         <Text style={styles.title}>{t("profile")}</Text>
       </View>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: bottomChrome + 24, gap: 16 }}>
+        {!!authError && <View style={styles.card}><Text accessibilityRole="alert" style={styles.email}>{authError}</Text>
+          {authError.includes("Sign-out could not be confirmed") && <Button label="Retry sign-out" onPress={logout} />}
+        </View>}
         <View style={styles.card} testID="profile-card">
           {user ? (
             <View style={styles.userRow}>
@@ -97,6 +100,8 @@ export default function Profile() {
             {([
               ["add-circle-outline", tx("Post a property", "प्रॉपर्टी पोस्ट करें"), "/post", "profile-post-link"],
               ["list-outline", tx("My listings", "मेरी लिस्टिंग"), "/listings", "profile-my-listings-link"],
+              ["person-outline", tx("Edit profile", "प्रोफ़ाइल बदलें"), "/account", "profile-edit-link"],
+              ["receipt-outline", tx("Payment history", "भुगतान इतिहास"), "/payments", "profile-payments-link"],
               ["mail-unread-outline", tx("Lead inbox", "लीड इनबॉक्स"), "/leads", "profile-leads-link"],
             ] as const).map(([icon, label, href, tid]) => (
               <Pressable key={href} testID={tid} onPress={() => router.push(href as any)} style={styles.linkRow}>

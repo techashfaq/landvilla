@@ -60,5 +60,5 @@ export async function uploadForm(url: string, opts: UploadOptions): Promise<Resp
     signal: opts.signal,
   };
   // Branch the call, not the function reference: the two fetches have different RequestInit types.
-  return Platform.OS === "web" ? fetch(url, init) : expoFetch(url, init);
+  return Platform.OS === "web" ? fetch(url, { ...init, credentials: "include" }) : expoFetch(url, init);
 }

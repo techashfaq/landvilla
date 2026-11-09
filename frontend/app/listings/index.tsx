@@ -1,12 +1,13 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import React from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, fileUrl } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { Badge, Button, EmptyState, ScreenHeader } from "@/src/components/ui";
 import { formatPrice } from "@/src/data";
 import { useLang } from "@/src/i18n";
@@ -19,10 +20,15 @@ export default function MyListings() {
   const { colors } = useTheme();
   const { tx, pick, lang } = useLang();
   const router = useRouter();
-  const q = useQuery({ queryKey: ["my-listings"], queryFn: () => api<{ items: any[] }>("/listings/mine") });
+  const { user, loading } = useAuth();
+  const q = useInfiniteQuery({ queryKey: ["my-listings", user?.user_id], enabled: !!user,
+    queryFn: ({ pageParam }) => api<{ items: any[]; total: number; page: number; limit: number }>(`/listings/mine?page=${pageParam}&limit=20`),
+    initialPageParam: 1, getNextPageParam: last => last.page * last.limit < last.total ? last.page + 1 : undefined });
   const plans = useQuery({ queryKey: ["featured-plans"], queryFn: () => api<{ payments_configured: boolean }>("/featured-plans") });
   // Store policy: paid in-app promotion is not sold inside the Android/iOS apps until a compliant billing approach is approved.
   const canBuyFeatured = FEATURED_PURCHASE_ALLOWED && !!plans.data?.payments_configured;
+  if (loading) return <ActivityIndicator />;
+  if (!user) return <Redirect href="/login" />;
 
   return (
     <View style={styles.screen}>
@@ -34,9 +40,11 @@ export default function MyListings() {
       />
       {q.isLoading ? (
         <ActivityIndicator color={colors.brandPrimary} style={{ marginTop: 40 }} />
-      ) : (
+      ) : q.isError ? <EmptyState icon="cloud-offline-outline" title={q.error.message} cta="Retry" onPress={() => q.refetch()} /> : (
         <FlatList
-          data={q.data?.items ?? []}
+          data={q.data?.pages.flatMap(page => page.items) ?? []}
+          onEndReached={() => { if (q.hasNextPage && !q.isFetching) q.fetchNextPage(); }}
+          ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator /> : undefined}
           keyExtractor={(p) => p.id}
           contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 24 }}
           refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); }} tintColor={colors.brandPrimary} />}

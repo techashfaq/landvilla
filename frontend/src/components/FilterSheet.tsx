@@ -55,6 +55,8 @@ export function FilterSheet({
   const [f, setF] = useState<Filters>(value);
 
   useEffect(() => {
+    // Opening the persistent sheet restores the last applied filter draft.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (visible) setF(value);
   }, [visible, value]);
 

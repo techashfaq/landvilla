@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
+import { useAuth } from "@/src/auth";
+import { storage } from "@/src/utils/storage";
 import { Photo, PhotoPicker } from "@/src/components/PhotoPicker";
 import { useToast } from "@/src/components/Toast";
 import { Button, Checkbox, Chip, ScreenHeader } from "@/src/components/ui";
@@ -27,9 +29,11 @@ type Form = {
   area_sqft: string;
   furnishing: string;
   amenities: string[];
+  address: string;
+  postal_code: string;
 };
 
-const EMPTY: Form = { purpose: "buy", segment: "residential", type: "", locality_id: "", title_en: "", title_hi: "", description_en: "", price: "", bhk: "", bathrooms: "", area_sqft: "", furnishing: "", amenities: [] };
+const EMPTY: Form = { purpose: "buy", segment: "residential", type: "", locality_id: "", title_en: "", title_hi: "", description_en: "", price: "", bhk: "", bathrooms: "", area_sqft: "", furnishing: "", amenities: [], address: "", postal_code: "" };
 
 export default function ListingForm() {
   const { as, id } = useLocalSearchParams<{ as?: string; id?: string }>();
@@ -40,6 +44,8 @@ export default function ListingForm() {
   const router = useRouter();
   const toast = useToast();
   const qc = useQueryClient();
+  const { user, loading } = useAuth();
+  const draftKey = `listing_draft.${user?.user_id ?? "guest"}.${id ?? "new"}`;
   const { data: meta } = useMeta();
   const [f, setF] = useState<Form>(EMPTY);
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -48,14 +54,17 @@ export default function ListingForm() {
   const [formErr, setFormErr] = useState("");
   const [postedAs, setPostedAs] = useState<"owner" | "broker">(as === "broker" ? "broker" : "owner");
 
-  const existing = useQuery({ queryKey: ["listing-edit", id], queryFn: () => api<any>(`/listings/${id}/edit`), enabled: !!id });
+  const existing = useQuery({ queryKey: ["listing-edit", id, user?.user_id], queryFn: () => api<any>(`/listings/${id}/edit`), enabled: !!id && !!user });
   useEffect(() => {
     const p = existing.data;
     if (!p) return;
+    // Hydrate the editable draft once the requested listing arrives from the API.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setF({
       purpose: p.purpose, segment: p.segment, type: p.type, locality_id: p.locality_id, title_en: p.title_en, title_hi: p.title_hi === p.title_en ? "" : p.title_hi,
       description_en: p.description_en, price: String(p.price), bhk: p.bhk ? String(p.bhk) : "", bathrooms: p.bathrooms != null ? String(p.bathrooms) : "",
       area_sqft: String(p.area_sqft ?? ""), furnishing: p.furnishing ?? "", amenities: p.amenities ?? [],
+      address: p.address ?? "", postal_code: p.postal_code ?? "",
     });
     setPhotos((p.photo_ids ?? []).map((pid: string, i: number) => ({ id: pid, url: p.images[i] })));
     setPostedAs(p.posted_by_role === "broker" ? "broker" : "owner");
@@ -69,8 +78,9 @@ export default function ListingForm() {
   const m = useMutation({
     mutationFn: (body: any) => api(id ? `/listings/${id}` : "/listings", { method: id ? "PUT" : "POST", body }),
     onSuccess: () => {
+      storage.removeItem(draftKey);
       qc.invalidateQueries({ queryKey: ["my-listings"] });
-      toast.show(tx("Submitted for review. We'll notify you once it's approved.", "समीक्षा के लिए भेजा गया। स्वीकृति के बाद यह लाइव होगी।"), "success");
+      toast.show(tx("Submitted for review. Check My listings for status.", "समीक्षा के लिए भेजा गया। स्थिति मेरी लिस्टिंग में देखें।"), "success");
       router.replace("/listings");
     },
     onError: (e: any) => {
@@ -81,6 +91,7 @@ export default function ListingForm() {
 
   const submit = () => {
     const e: Record<string, string> = {};
+    if (f.postal_code && !/^[1-9]\d{5}$/.test(f.postal_code)) e.postal_code = "Enter a valid six-digit postal code";
     if (!f.type) e.type = tx("Choose a property type", "प्रॉपर्टी प्रकार चुनें");
     if (!f.locality_id) e.locality = tx("Choose a locality", "इलाका चुनें");
     if (f.title_en.trim().length < 5) e.title = tx("Title must be at least 5 characters", "शीर्षक कम से कम 5 अक्षर का हो");
@@ -103,15 +114,37 @@ export default function ListingForm() {
       title_en: f.title_en.trim(), title_hi: f.title_hi.trim(), description_en: f.description_en.trim(),
       price, area_sqft: area, bhk: f.bhk ? parseInt(f.bhk, 10) : null, bathrooms: f.bathrooms ? parseInt(f.bathrooms, 10) : null,
       furnishing: f.furnishing || null, amenities: f.amenities, photo_ids: photos.map((p) => p.id), owner_declaration_accepted: declared,
+      address: f.address.trim(), postal_code: f.postal_code || null,
     });
   };
 
-  if (id && existing.isLoading) return <View style={[styles.screen, { justifyContent: "center" }]}><ActivityIndicator color={colors.brandPrimary} /></View>;
+  const saveDraft = async () => {
+    const saved = await storage.setItem(draftKey, JSON.stringify({ version: 1, form: f, photos, postedAs }));
+    toast.show(saved ? tx("Draft saved on this device", "ड्राफ्ट इस डिवाइस पर सुरक्षित है") : tx("Could not save draft", "ड्राफ्ट सुरक्षित नहीं हुआ"), saved ? "success" : "error");
+  };
+  const loadDraft = async () => {
+    const raw = await storage.getItem(draftKey, null);
+    if (typeof raw !== "string") { toast.show(tx("No saved draft on this device", "इस डिवाइस पर कोई ड्राफ्ट नहीं है"), "info"); return; }
+    try {
+      const draft = JSON.parse(raw);
+      if (draft.version !== 1 || !draft.form || !Array.isArray(draft.photos) || !["owner", "broker"].includes(draft.postedAs)) throw new Error();
+      setF({ ...EMPTY, ...draft.form }); setPhotos(draft.photos); setPostedAs(draft.postedAs); setDeclared(false);
+      toast.show(tx("Draft restored. Review before submitting.", "ड्राफ्ट बहाल हुआ। जमा करने से पहले जाँचें।"), "success");
+    } catch { toast.show(tx("This draft could not be read", "यह ड्राफ्ट पढ़ा नहीं जा सका"), "error"); }
+  };
+
+  if (loading || (id && existing.isLoading)) return <View style={[styles.screen, { justifyContent: "center" }]}><ActivityIndicator color={colors.brandPrimary} /></View>;
+  if (!user) return <Redirect href="/login" />;
+  if (id && existing.isError) return <View style={styles.screen}><Text>{existing.error.message}</Text><Button label="Retry" onPress={() => existing.refetch()} /></View>;
 
   return (
     <View style={styles.screen}>
       <ScreenHeader title={id ? tx("Edit listing", "लिस्टिंग बदलें") : tx("New listing", "नई लिस्टिंग")} onBack={() => router.back()} topInset={insets.top} />
       <KeyboardAwareScrollView bottomOffset={24} contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32 }} keyboardShouldPersistTaps="handled">
+        <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
+          <Button label={tx("Save draft", "ड्राफ्ट सहेजें")} onPress={saveDraft} variant="outline" disabled={m.isPending} style={{ flex: 1 }} />
+          <Button label={tx("Restore draft", "ड्राफ्ट खोलें")} onPress={loadDraft} variant="outline" disabled={m.isPending} style={{ flex: 1 }} />
+        </View>
         <View style={styles.roleBanner} testID="posting-as-banner">
           <Text style={styles.roleText}>{tx("Posting as", "पोस्टिंग")}: {postedAs === "broker" ? tx("Verified Broker", "सत्यापित ब्रोकर") : tx("Owner", "मालिक")}</Text>
         </View>
@@ -199,6 +232,11 @@ export default function ListingForm() {
         </Section>
         <Section title={tx("Photos", "फ़ोटो")} error={errors.photos}>
           <PhotoPicker photos={photos} onChange={setPhotos} />
+        </Section>
+
+        <Section title={tx("Address · Ujjain, Madhya Pradesh", "पता · उज्जैन, मध्य प्रदेश")} error={errors.postal_code}>
+          <TextInput accessibilityLabel="Property address" value={f.address} onChangeText={v => set("address", v)} placeholder="Address (shown publicly)" maxLength={300} />
+          <TextInput accessibilityLabel="Postal code" value={f.postal_code} onChangeText={v => set("postal_code", v)} placeholder="Postal code" keyboardType="number-pad" maxLength={6} />
         </Section>
 
         <View style={[styles.declare, errors.declared && { borderColor: colors.error }]}>

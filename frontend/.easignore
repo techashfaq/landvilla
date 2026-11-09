@@ -1,0 +1,48 @@
+# Environment files and secrets
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# Dependencies and local caches
+node_modules/
+**/node_modules/
+.expo/
+.metro-cache/
+**/.expo/
+**/.metro-cache/
+
+# Version-control metadata
+.git/
+**/.git/
+
+# Local native builds and signing material
+android/
+ios/
+*.jks
+*.keystore
+*.p8
+*.p12
+*.mobileprovision
+google-services.json
+GoogleService-Info.plist
+*service-account*.json
+credentials.json
+.credentials
+
+# Logs, temporary files and backups
+*.log
+*.bak
+*.tsbuildinfo
+
+# Generated exports and local tooling
+dist/
+.cache/
+coverage/
+*.pem
+*.key
+**/*.jks
+**/*.keystore
+**/credentials.json

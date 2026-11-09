@@ -41,10 +41,10 @@ export default function FeatureListing() {
       qc.invalidateQueries({ queryKey: ["properties"] });
       if (o.status === "paid") {
         const until = new Date(o.featured_until).toLocaleDateString(lang === "hi" ? "hi-IN" : "en-IN", { day: "numeric", month: "short", year: "numeric" });
-        setResult({ kind: "success", text: tx(`Payment verified. Your listing is featured until ${until}.`, `भुगतान सत्यापित। आपकी लिस्टिंग ${until} तक फ़ीचर्ड है।`) });
+        setResult({ kind: "success", text: tx(`Payment verified. Your listing is featured until ${until}. Reference: ${o.id}`, `भुगतान सत्यापित। आपकी लिस्टिंग ${until} तक फ़ीचर्ड है। संदर्भ: ${o.id}`) });
       } else setResult({ kind: "pending", text: tx("Payment is pending. Featuring starts automatically once Razorpay confirms it.", "भुगतान लंबित है। Razorpay की पुष्टि के बाद फ़ीचर अपने आप शुरू होगा।") });
     },
-    onError: (e: any) => setResult({ kind: "failed", text: e.message }),
+    onError: (e: any) => setResult({ kind: "pending", text: `${e.message} Check payment history before retrying.` }),
   });
   const markFailed = (reason: "cancelled" | "failed", description = "") => {
     if (order) api("/payments/featured/failed", { method: "POST", body: { razorpay_order_id: order.razorpay_order_id, reason, description } }).catch(() => {});
@@ -82,6 +82,7 @@ export default function FeatureListing() {
               <Text style={styles.resultText}>{result.text}</Text>
             </View>
           )}
+          {result && <Button label={tx("View payment history", "भुगतान इतिहास देखें")} variant="outline" onPress={() => router.push("/payments")} />}
           {!FEATURED_PURCHASE_ALLOWED ? (
             <Text style={styles.err} testID="featured-not-available-in-app">{tx("Featured purchases are not available in the mobile app yet.", "फ़ीचर्ड खरीदारी अभी मोबाइल ऐप में उपलब्ध नहीं है।")}</Text>
           ) : !plans.data?.payments_configured ? (
@@ -104,7 +105,7 @@ export default function FeatureListing() {
       <RazorpayCheckout
         order={order}
         onSuccess={(r) => { setOrder(null); verify.mutate(r); }}
-        onDismiss={() => { markFailed("cancelled"); setOrder(null); setResult({ kind: "cancelled", text: tx("Payment cancelled. You were not charged.", "भुगतान रद्द हुआ। कोई राशि नहीं कटी।") }); }}
+        onDismiss={() => { markFailed("cancelled"); setOrder(null); setResult({ kind: "cancelled", text: tx("Checkout closed. Check payment history before trying again if money was debited.", "भुगतान विंडो बंद हुई। राशि कटी हो तो दोबारा प्रयास से पहले भुगतान इतिहास देखें।") }); }}
         onFailed={(d) => { markFailed("failed", d); setOrder(null); setResult({ kind: "failed", text: d }); }}
       />
     </View>

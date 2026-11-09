@@ -1,14 +1,14 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import { useQuery } from "@tanstack/react-query";
 import { BlurView } from "expo-blur";
-import { Image } from "expo-image";
+import { PropertyImage } from "@/src/components/PropertyImage";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Share, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, BACKEND, fileUrl } from "@/src/api";
+import { api, BACKEND } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { EnquirySheet } from "@/src/components/EnquirySheet";
 import { ReportSheet } from "@/src/components/ReportSheet";
@@ -71,8 +71,8 @@ export default function PropertyDetail() {
             showsHorizontalScrollIndicator={false}
             onMomentumScrollEnd={(e) => setImgIdx(Math.round(e.nativeEvent.contentOffset.x / width))}
           >
-            {p.images.map((src, i) => (
-              <Image key={i} source={{ uri: fileUrl(src) }} style={{ width, height: 320 }} contentFit="cover" transition={200} />
+            {(p.images.length ? p.images : [""]).map((src, i) => (
+              <PropertyImage key={`${p.id}:${i}`} uri={src} identity={`${p.id}:${i}`} style={{ width, height: 320 }} />
             ))}
           </ScrollView>
           <LinearGradient colors={["rgba(0,0,0,0.5)", "transparent"]} style={styles.topScrim} pointerEvents="none" />

@@ -9,7 +9,7 @@ import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { Sheet } from "@/src/components/Sheet";
 import { useToast } from "@/src/components/Toast";
-import { Badge, Button, Checkbox, Chip, EmptyState, ScreenHeader } from "@/src/components/ui";
+import { Badge, Button, Chip, EmptyState, ScreenHeader } from "@/src/components/ui";
 import { fonts, makeStyles, useTheme } from "@/src/theme";
 
 const NEW = { property_description: "", payer_type: "owner", payer_name: "", rate_percent: "1", calculation_method: "Percentage of final declared sale value",

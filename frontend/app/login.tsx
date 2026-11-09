@@ -1,10 +1,11 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import { useRouter } from "expo-router";
 import React, { useEffect } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth";
+import { IndependentGoogle } from "@/src/components/IndependentGoogle";
 import { Button } from "@/src/components/ui";
 import { useLang } from "@/src/i18n";
 import { fonts, makeStyles, useTheme } from "@/src/theme";
@@ -14,7 +15,7 @@ export default function Login() {
   const styles = useStyles();
   const { colors } = useTheme();
   const { t, tx } = useLang();
-  const { user, login, signingIn, error } = useAuth();
+  const { user, login, logout, signingIn, error } = useAuth();
   const router = useRouter();
 
   // Auth gate: once signed in, leave the login screen.
@@ -39,7 +40,10 @@ export default function Login() {
         <Text style={styles.sub}>{t("loginSub")}</Text>
       </View>
       {error && <Text style={styles.err} testID="login-error">{error}</Text>}
-      <Button label={t("continueGoogle")} icon="logo-google" onPress={login} loading={signingIn} testID="google-login-btn" />
+      {error?.includes("Sign-out could not be confirmed") && <Button label="Retry sign-out" onPress={logout} />}
+      <IndependentGoogle />
+      {Platform.OS !== "web" && <Button label={t("continueGoogle")} icon="logo-google" onPress={login} loading={signingIn} testID="google-login-btn" />}
+      <Button label={tx("Email / mobile sign-in or registration", "ईमेल / मोबाइल लॉगिन या पंजीकरण")} onPress={() => router.push("/verify")} variant="outline" style={{ marginTop: 12 }} />
       <Text style={styles.legal}>
         {tx("By continuing you agree to the ", "जारी रखकर आप ")}
         <Text style={styles.link} onPress={() => router.push("/legal/terms")} testID="login-terms-link">{tx("Terms", "नियम")}</Text>

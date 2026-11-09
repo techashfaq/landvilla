@@ -21,6 +21,8 @@ export function Thread({ enquiryId, messages, me, queryKey, blocked = false }: {
   const [sending, setSending] = useState(false);
   const [blockedMsg, setBlockedMsg] = useState("");
   useEffect(() => {
+    // An unblock from server state clears the previous send-error banner.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!blocked) setBlockedMsg("");
   }, [blocked]);
 

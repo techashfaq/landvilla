@@ -1,0 +1,2 @@
+export const metadata = { title: "FAQs awaiting approval", robots: { index: false, follow: false } };
+export default function Page() { return <main id="main" className="container section stack legal"><h1>FAQs are awaiting approval.</h1><p>Business policies and frequently asked questions will be published after review. This page does not make promises about fees, verification, legal services or transaction protection.</p></main>; }

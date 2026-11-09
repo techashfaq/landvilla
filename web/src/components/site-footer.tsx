@@ -1,0 +1,4 @@
+import Link from "next/link";
+export function SiteFooter() {
+  return <footer className="site-footer"><div className="container footer-grid"><div><strong>LANDVILLA</strong><p>Built around places.<br />Designed around people.</p></div><div><span className="eyebrow">Starting in Ujjain</span><p className="small">Explore current listings.<br />Fictional examples are explicitly labelled.</p></div><nav aria-label="Footer"><Link href="/properties">Discover properties</Link><Link href="/about">About LANDVILLA</Link><Link href="/approach">Our approach</Link><Link href="/contact">Contact status</Link><Link href="/faq">FAQ status</Link><Link href="/legal/privacy">Privacy policy</Link><Link href="/legal/terms">Terms of use</Link><Link href="/admin">Staff access</Link></nav></div><div className="container footer-bottom">LANDVILLA · Madhya Pradesh, India<span>Review property details independently before a decision.</span></div></footer>;
+}

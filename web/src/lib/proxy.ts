@@ -1,12 +1,16 @@
 import type { ProxyConfig } from "./config.ts";
 import { accountPath, accountRoute } from "./account-routes.ts";
 import { limitedBody, mediaRoute, mediaTypes, validateUpload } from "./media.ts";
+import { propertyQuery } from "./property-query.ts";
+import { adminPath, adminRoute } from "./admin-routes.ts";
+import { publicPropertiesResponse, publicPropertyResponse } from "./public-response.ts";
 
-// Phase 1 exposes existing read/auth contracts only; no new moderation/payment/upload actions.
+// Explicit route policies; backend authorizes every protected read and mutation.
 export function allowedRoute(method: string, path: string): boolean {
   const reads = ["/api/meta", "/api/auth/me", "/api/auth/browser/bootstrap", "/api/me/profile", "/api/admin/stats"];
   const writes = ["/api/auth/otp/request", "/api/auth/otp/verify", "/api/auth/google", "/api/auth/browser/google-nonce", "/api/auth/logout"];
-  return mediaRoute(method, path) || accountRoute(method, path) || (method === "GET" && (reads.includes(path) || /^\/api\/legal\/(privacy|terms)\.json$/.test(path))) || (method === "POST" && writes.includes(path));
+  const publicPropertyRead = method === "GET" && (path === "/api/properties" || /^\/api\/properties\/[a-zA-Z0-9_-]{1,100}$/.test(path));
+  return mediaRoute(method, path) || accountRoute(method, path) || adminRoute(method, path) || publicPropertyRead || (method === "GET" && (reads.includes(path) || /^\/api\/legal\/(privacy|terms)\.json$/.test(path))) || (method === "POST" && writes.includes(path));
 }
 export function sessionCookie(raw: string | null, production: boolean): string | null {
   const name = production ? "__Host-lv_session" : "lv_dev_session";
@@ -24,10 +28,24 @@ function validCookie(header: string, secure: boolean): boolean {
 }
 export async function forward(request: Request, config: ProxyConfig, transport: typeof fetch = fetch): Promise<Response> {
   const url = new URL(request.url);
+  const publicRead = request.method === "GET" && (url.pathname === "/api/properties" || url.pathname.startsWith("/api/properties/"));
   if (!allowedRoute(request.method, url.pathname)) return fail(404, "This API route is not available in the web foundation.");
   if (request.headers.has("authorization")) return fail(400, "Unsupported request credentials or query parameters.");
   let upstreamPath = url.pathname;
-  if (url.search) { try { upstreamPath = accountPath(request.method, url.pathname + url.search); } catch { return fail(400, "Unsupported query parameters."); } }
+  if (url.search) {
+    if (request.method === "GET" && url.pathname === "/api/properties") {
+      try {
+        const query = propertyQuery(url.searchParams);
+        upstreamPath = url.pathname + (query.size ? "?" + query.toString() : "");
+      } catch { return fail(400, "Unsupported query parameters."); }
+    } else if (url.pathname.startsWith("/api/admin/")) {
+      try { upstreamPath = adminPath(request.method, url.pathname + url.search); }
+      catch { return fail(400, "Unsupported query parameters."); }
+    } else {
+      try { upstreamPath = accountPath(request.method, url.pathname + url.search); }
+      catch { return fail(400, "Unsupported query parameters."); }
+    }
+  }
   const suppliedOrigin = request.headers.get("origin");
   if (suppliedOrigin && suppliedOrigin !== config.webOrigin) return fail(403, "Untrusted request origin.");
   if (request.headers.get("sec-fetch-site") === "cross-site") return fail(403, "Cross-site requests are not allowed.");
@@ -36,10 +54,10 @@ export async function forward(request: Request, config: ProxyConfig, transport: 
   if (unsafe && !request.headers.get("x-csrf-token")) return fail(403, "Initialize your browser session before continuing.");
   const headers = new Headers({ "X-LV-Client": "web", Accept: "application/json" });
   const cookie = sessionCookie(request.headers.get("cookie"), config.production || new URL(config.webOrigin).protocol === "https:");
-  if (cookie) headers.set("Cookie", cookie);
+  if (cookie && !publicRead) headers.set("Cookie", cookie);
   for (const name of ["origin", "referer", "sec-fetch-site", "sec-fetch-mode", "x-csrf-token"]) {
     const value = request.headers.get(name);
-    if (value) headers.set(name, value);
+    if (value && !(publicRead && name === "x-csrf-token")) headers.set(name, value);
   }
   // No forwarded IP/host/scheme supplied by the caller is trusted or relayed.
   let body: string | FormData | undefined;
@@ -80,6 +98,13 @@ export async function forward(request: Request, config: ProxyConfig, transport: 
     }
     if (!upstream.headers.get("content-type")?.includes("application/json")) return fail(502, "The API returned an unexpected response.");
     const responseHeaders = new Headers({ "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+    if (publicRead) {
+      if (!upstream.ok) return fail(upstream.status >= 500 ? 503 : upstream.status, upstream.status === 404 ? "This property is not available." : "Property information could not be loaded.");
+      try {
+        const data: unknown = await upstream.json();
+        return Response.json(url.pathname === "/api/properties" ? publicPropertiesResponse(data) : publicPropertyResponse(data), { headers: responseHeaders });
+      } catch { return fail(502, "The API returned invalid property information."); }
+    }
     // Preserve separate cookie headers, including cookie deletion attributes.
     for (const cookieHeader of upstream.headers.getSetCookie()) {
       if (!validCookie(cookieHeader, config.production || config.webOrigin.startsWith("https:"))) return fail(502, "Backend cookie configuration does not match this website.");

@@ -6184,3 +6184,8 @@ zod@^3.25.76:
   version "3.25.76"
   resolved "https://registry.npmjs.org/zod/-/zod-3.25.76.tgz"
   integrity sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==
+
+react-native-iap@17.3.5:
+  version "17.3.5"
+  resolved "https://registry.npmjs.org/react-native-iap/-/react-native-iap-17.3.5.tgz#7ca880a55efdaa7f483eb6e11ad3539e97526302"
+  integrity sha512-RmtyDw+6Wpwj4uZ4cqc5SosQ2FC9jq8o0yanGqJ6EPiXTqx/EjYB+VYidscOu54z+sYtZELtx42KfIerO7jzUA==

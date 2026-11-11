@@ -2,6 +2,7 @@ import { isRecord, parseChallenge, parseSession } from "./contracts.ts";
 import type { OtpRequest, Session } from "./contracts.ts";
 import { accountPath } from "./account-routes.ts";
 import { validateUpload } from "./media.ts";
+import { adminPath, moderationBody } from "./admin-routes.ts";
 
 export class ApiError extends Error {
   status: number;
@@ -32,7 +33,7 @@ export class BrowserClient {
     this.update({ session: null, loading: false, error: message });
   }
   private async request(path: string, method = "GET", body?: unknown, csrf?: string): Promise<unknown> {
-    if (path.includes("?")) { try { path = accountPath(method, path); } catch { throw new ApiError(400, "Invalid API query."); } }
+    if (path.includes("?")) { try { path = path.startsWith("/api/admin/") ? adminPath(method, path) : accountPath(method, path); } catch { throw new ApiError(400, "Invalid API query."); } }
     else if (!/^\/api\/[a-z0-9/._-]+$/i.test(path) || path.includes("..")) throw new ApiError(400, "Invalid API path.");
     const generation = this.generation;
     const headers: Record<string, string> = { "X-LV-Client": "web", Accept: "application/json" };
@@ -121,6 +122,43 @@ export class BrowserClient {
       const data = await this.request("/api/uploads", "POST", form, csrf);
       if (!isRecord(data) || typeof data.id !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(data.id) || data.kind !== kind) throw new ApiError(502, "Upload confirmation is invalid.");
       return { id: data.id, url: `/api/files/${data.id}` };
+    });
+  }
+  async admin(path: string, note: string) {
+    try { path = adminPath("POST", path); } catch { throw new ApiError(400, "Unsupported administrative operation."); }
+    const parts = path.split("/");
+    const body = moderationBody(parts.at(-1)!, note);
+    return this.exclusive(async csrf => {
+      const user = this.state.session?.user;
+      if (!user || user.role !== "admin") throw new ApiError(403, "Administrator access is required.");
+      if (parts[3] === "brokers" && parts[4] === user.user_id) throw new ApiError(403, "Your own application must be reviewed by another administrator.");
+      try {
+        const data = await this.request(path, "POST", body, csrf);
+        const expected = ({ approve: parts[3] === "listings" ? "active" : "approved", reject: "rejected", "request-changes": "changes_requested", suspend: "suspended", deactivate: "inactive", reactivate: "pending_review" } as Record<string, string>)[parts[5]!];
+        if (!isRecord(data) || (parts[3] === "listings" ? data.id !== parts[4] || data.listing_status !== expected : data.status !== expected)) throw new ApiError(502, "The server did not confirm this decision. Refresh before trying again.");
+        return data;
+      }
+      catch (error) {
+        if (error instanceof ApiError && ![0, 401, 403, 429, 503].includes(error.status)) throw new ApiError(error.status, "The decision was not saved. Check the record's current status and your permissions.");
+        throw error;
+      }
+    });
+  }
+  async adminDetail(path: string) {
+    path = adminPath("GET", path);
+    const generation = this.generation;
+    const session = this.state.session || await this.bootstrap();
+    if (generation !== this.generation) throw new ApiError(409, "Session changed.");
+    if (session.user?.role !== "admin") throw new ApiError(403, "Administrator access is required.");
+    return this.request(path);
+  }
+  async adminOperation(path: string, method: "POST" | "PUT" | "PATCH", body: unknown) {
+    try { path = adminPath(method, path); } catch { throw new ApiError(400, "Unsupported administrative operation."); }
+    return this.exclusive(async csrf => {
+      if (this.state.session?.user?.role !== "admin") throw new ApiError(403, "Administrator access is required.");
+      const result = await this.request(path, method, body, csrf);
+      if (!isRecord(result) || !(typeof result.id === "string" || result.resolved === true)) throw new ApiError(502, "Save could not be confirmed. Refresh before retrying.");
+      return result;
     });
   }
   private accept(data: unknown) {

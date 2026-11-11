@@ -94,7 +94,7 @@ async def guard(request):
     if not request.url.path.startswith("/api/") or request.method == "OPTIONS":
         return
     # Server-to-server callbacks retain raw-body signature verification.
-    if request.url.path == "/api/payments/razorpay/webhook":
+    if request.url.path in ("/api/payments/razorpay/webhook", "/api/payments/play/notifications"):
         return
     web = browser_request(request)
     request.state.browser = web

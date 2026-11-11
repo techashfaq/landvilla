@@ -1,5 +1,7 @@
 # LANDVILLA — Independent Production Deployment
 
+> Historical planning below is superseded by [RELEASE_OPERATIONS.md](RELEASE_OPERATIONS.md). Do not use the historical provider, region, CORS, seed or runtime recommendations as deployment instructions.
+
 Nothing here has been deployed. Every step that costs money or touches live data needs your approval first.
 
 ## 1. Services still tied to Emergent

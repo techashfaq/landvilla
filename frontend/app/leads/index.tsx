@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import React, { useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useFocusedRefresh } from "@/src/useFocusedRefresh";
+import { useAuth } from "@/src/auth";
 import { api, fileUrl } from "@/src/api";
 import { Badge, Chip, EmptyState, ScreenHeader } from "@/src/components/ui";
 import { useLang } from "@/src/i18n";
@@ -12,15 +14,20 @@ import { LEAD_STATUS } from "@/src/lister";
 import { fonts, makeStyles, useTheme } from "@/src/theme";
 
 export default function LeadInbox() {
+  const { user, loading } = useAuth();
   const insets = useSafeAreaInsets();
   const styles = useStyles();
   const { colors } = useTheme();
   const { tx, pick, lang } = useLang();
   const router = useRouter();
   const [status, setStatus] = useState<string | undefined>();
-  const q = useQuery({ queryKey: ["leads", status], queryFn: () => api<{ items: any[]; counts: Record<string, number> }>(`/leads${status ? `?status=${status}` : ""}`) });
+  const q = useQuery({ queryKey: ["leads", user?.user_id, status], enabled: !!user, queryFn: () => api<{ items: any[]; counts: Record<string, number> }>(`/leads${status ? `?status=${status}` : ""}`) });
+  useFocusedRefresh(q.refetch, !!user);
   const counts = q.data?.counts ?? {};
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
+
+  if (loading) return <ActivityIndicator />;
+  if (!user) return <Redirect href="/login" />;
 
   return (
     <View style={styles.screen}>
@@ -35,7 +42,7 @@ export default function LeadInbox() {
       </View>
       {q.isLoading ? (
         <ActivityIndicator color={colors.brandPrimary} style={{ marginTop: 40 }} />
-      ) : (
+      ) : q.isError ? <EmptyState icon="cloud-offline-outline" title={q.error.message} cta="Retry" onPress={() => q.refetch()} /> : (
         <FlatList
           data={q.data?.items ?? []}
           keyExtractor={(l) => l.id}

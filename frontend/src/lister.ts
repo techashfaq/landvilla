@@ -22,6 +22,7 @@ export const LISTING_STATUS: Record<string, { en: string; hi: string; kind: "ver
   active: { en: "Live", hi: "लाइव", kind: "verified" },
   rejected: { en: "Rejected", hi: "अस्वीकृत", kind: "demo" },
   sold_rented: { en: "Sold / Rented", hi: "बिक/किराए पर", kind: "muted" },
+  inactive: { en: "Inactive", hi: "निष्क्रिय", kind: "muted" },
   expired: { en: "Expired", hi: "समाप्त", kind: "muted" },
 };
 
@@ -37,4 +38,14 @@ export function useRequireLogin() {
   const { user, loading } = useAuth();
   const router = useRouter();
   return { user, loading, goLogin: () => router.push("/login") };
+}
+
+export type BrokerDashboard = {
+  application: (NonNullable<BrokerInfo> & { phone: string; locality_id: string | null; documents: { id: string; name: string }[] }) | null;
+  listings: Record<string, number>;
+  leads: Record<string, number>;
+};
+export function useBrokerDashboard() {
+  const { user } = useAuth();
+  return useQuery({ queryKey: ["broker-dashboard", user?.user_id], queryFn: () => api<BrokerDashboard>("/broker/me"), enabled: !!user });
 }

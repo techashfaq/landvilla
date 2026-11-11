@@ -6,11 +6,42 @@ import { forward, sessionCookie } from "../src/lib/proxy.ts";
 const config = { backendOrigin: "http://127.0.0.1:8000", webOrigin: "http://localhost:19006", production: false };
 const post = (headers: Record<string, string> = {}) => new Request(config.webOrigin + "/api/auth/otp/request", { method: "POST", headers: { Origin: config.webOrigin, "Content-Type": "application/json", "X-CSRF-Token": "fixture-csrf", ...headers }, body: JSON.stringify({ identifier: "test@example.test", purpose: "login" }) });
 
+test("proxy allows only validated public property reads and filters", async () => {
+  const forwarded: string[] = [];
+  const transport: typeof fetch = async (input) => {
+    forwarded.push(String(input));
+    return Response.json(String(input).includes("/properties?") ? { items: [], total: 0, page: 1, limit: 5 } : { id: "property_123", title_en: "Fixture", purpose: "buy", segment: "residential", type: "apartment", price: 100, area_sqft: 100 });
+  };
+
+  const valid = await forward(new Request(config.webOrigin + "/api/properties?purpose=buy&limit=5&page=1&sort=newest"), config, transport);
+  assert.equal(valid.status, 200);
+  assert.equal(forwarded[0], config.backendOrigin + "/api/properties?limit=5&page=1&purpose=buy&sort=newest");
+
+  const detail = await forward(new Request(config.webOrigin + "/api/properties/property_123"), config, transport);
+  assert.equal(detail.status, 200);
+  assert.equal(forwarded[1], config.backendOrigin + "/api/properties/property_123");
+
+  for (const path of [
+    "/api/properties?unknown=value",
+    "/api/properties?purpose=buy&purpose=rent",
+    "/api/properties?limit=51",
+    "/api/properties?min_price=900&max_price=100",
+    "/api/properties/property_123?limit=5",
+    "/api/properties/not%20valid",
+  ]) {
+    const response = await forward(new Request(config.webOrigin + path), config, transport);
+    assert.ok(response.status >= 400, path);
+  }
+  const write = await forward(new Request(config.webOrigin + "/api/properties", { method: "POST" }), config, transport);
+  assert.ok(write.status >= 400);
+  assert.equal(forwarded.length, 2);
+});
+
 test("proxy denies unavailable mutations, bearer credentials, query tokens and malicious paths", async () => {
   let calls = 0;
   const transport: typeof fetch = async () => { calls++; return Response.json({}); };
   for (const request of [
-    new Request(config.webOrigin + "/api/admin/listings/x/approve", { method: "POST" }),
+    new Request(config.webOrigin + "/api/admin/staff/x/grant", { method: "POST" }),
     new Request(config.webOrigin + "/api/auth/me?token=fixture"),
     new Request(config.webOrigin + "/api/auth/me", { headers: { Authorization: "Bearer fixture" } }),
     new Request(config.webOrigin + "/api/%2e%2e/auth/me"),

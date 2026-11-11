@@ -1,21 +1,27 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
+import React, { useRef, useState } from "react";
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import * as Crypto from "expo-crypto";
+import { useAuth } from "@/src/auth";
+import { useFocusedRefresh } from "@/src/useFocusedRefresh";
 import { api } from "@/src/api";
+import { PlayBillingPanel } from "@/src/components/PlayBillingPanel";
 import { FEATURED_PURCHASE_ALLOWED } from "@/src/lister";
 import { RazorpayCheckout, RzpOrder, RzpSuccess } from "@/src/components/RazorpayCheckout";
 import { useToast } from "@/src/components/Toast";
-import { Badge, Button, ScreenHeader } from "@/src/components/ui";
+import { Badge, Button, EmptyState, ScreenHeader } from "@/src/components/ui";
 import { useLang } from "@/src/i18n";
 import { fonts, makeStyles, useTheme } from "@/src/theme";
 
-type Plan = { id: string; name_en: string; name_hi: string; price_inr: number; duration_days: number };
+type Plan = { id: string; name_en: string; name_hi: string; price_inr: number; duration_days: number; benefits?: string; play_product_id?: string };
 
 export default function FeatureListing() {
+  const { user, loading } = useAuth();
+  const attempt = useRef(Crypto.randomUUID());
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const styles = useStyles();
@@ -24,19 +30,22 @@ export default function FeatureListing() {
   const router = useRouter();
   const toast = useToast();
   const qc = useQueryClient();
-  const plans = useQuery({ queryKey: ["featured-plans"], queryFn: () => api<{ items: Plan[]; payments_configured: boolean; mode: string | null }>("/featured-plans") });
+  const plans = useQuery({ queryKey: ["featured-plans"], queryFn: () => api<{ items: Plan[]; payments_configured: boolean; mode: string | null; play_configured: boolean }>("/featured-plans") });
+  useFocusedRefresh(plans.refetch, !!user);
+  const listing = useQuery({ queryKey: ["listing-edit", id, user?.user_id], enabled: !!user && !!id, queryFn: () => api<{ listing_status: string; is_demo: boolean }>(`/listings/${id}/edit`) });
   const [planId, setPlanId] = useState<string | null>(null);
   const [order, setOrder] = useState<RzpOrder | null>(null);
   const [result, setResult] = useState<{ kind: "success" | "failed" | "pending" | "cancelled"; text: string } | null>(null);
 
   const create = useMutation({
-    mutationFn: () => api<RzpOrder>("/payments/featured/order", { method: "POST", body: { property_id: id, plan_id: planId } }),
+    mutationFn: () => api<RzpOrder>("/payments/featured/order", { method: "POST", body: { property_id: id, plan_id: planId, idempotency_key: attempt.current } }),
     onSuccess: (o) => { setResult(null); setOrder(o); },
     onError: (e: any) => toast.show(e.message, "error"),
   });
   const verify = useMutation({
     mutationFn: (r: RzpSuccess) => api<any>("/payments/featured/verify", { method: "POST", body: r }),
     onSuccess: (o) => {
+      qc.invalidateQueries({ queryKey: ["payments"] });
       qc.invalidateQueries({ queryKey: ["my-listings"] });
       qc.invalidateQueries({ queryKey: ["properties"] });
       if (o.status === "paid") {
@@ -52,6 +61,11 @@ export default function FeatureListing() {
 
   const selected = plans.data?.items.find((p) => p.id === planId);
 
+  if (loading) return <ActivityIndicator />;
+  if (!user) return <Redirect href="/login" />;
+  if (plans.isError || listing.isError) return <EmptyState icon="cloud-offline-outline" title="Could not load packages or listing" cta="Retry" onPress={() => { plans.refetch(); listing.refetch(); }} />;
+  if (listing.isLoading) return <ActivityIndicator />;
+  if (listing.data?.listing_status !== "active" || listing.data.is_demo) return <EmptyState icon="home-outline" title="Only approved, real listings are eligible" cta="My listings" onPress={() => router.replace("/listings")} />;
   return (
     <View style={styles.screen}>
       <ScreenHeader title={tx("Feature your listing", "लिस्टिंग फ़ीचर करें")} onBack={() => router.back()} topInset={insets.top} />
@@ -66,14 +80,16 @@ export default function FeatureListing() {
               <Text style={styles.testText}>{tx("TEST MODE – no real money is charged. Use Razorpay test cards/UPI.", "टेस्ट मोड – कोई असली पैसा नहीं कटेगा। Razorpay टेस्ट कार्ड/UPI का उपयोग करें।")}</Text>
             </View>
           )}
+          {!plans.data?.items.length && <Text style={styles.small}>No approved packages are available yet.</Text>}
           {plans.data?.items.map((p) => (
-            <Pressable key={p.id} testID={`plan-${p.id}`} onPress={() => setPlanId(p.id)} style={[styles.plan, planId === p.id && styles.planOn]}>
+            <Pressable key={p.id} testID={`plan-${p.id}`} onPress={() => { if (!create.isPending && !verify.isPending) { setPlanId(p.id); attempt.current = Crypto.randomUUID(); } }} style={[styles.plan, planId === p.id && styles.planOn]}>
               <Ionicons name={planId === p.id ? "radio-button-on" : "radio-button-off"} size={22} color={colors.brandPrimary} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.planName}>{pick(p, "name")}</Text>
-                <Text style={styles.planSub}>{p.duration_days} {tx("days at the top of your area", "दिन अपने इलाके में सबसे ऊपर")}</Text>
+                <Text style={styles.planSub}>{p.duration_days} {tx("days of featured placement", "दिन फ़ीचर्ड स्थान")}</Text>
+                {!!p.benefits && <Text style={styles.planSub}>{p.benefits}</Text>}
               </View>
-              <Text style={styles.planPrice}>₹{p.price_inr}</Text>
+              <Text style={styles.planPrice}>{Platform.OS === "android" ? "Google Play" : `₹${p.price_inr}`}</Text>
             </Pressable>
           ))}
           {result && (
@@ -83,7 +99,7 @@ export default function FeatureListing() {
             </View>
           )}
           {result && <Button label={tx("View payment history", "भुगतान इतिहास देखें")} variant="outline" onPress={() => router.push("/payments")} />}
-          {!FEATURED_PURCHASE_ALLOWED ? (
+          {Platform.OS === "android" ? (plans.data?.play_configured && selected?.play_product_id ? <PlayBillingPanel key={selected.id} productId={selected.play_product_id} planId={selected.id} propertyId={id} /> : <Text style={styles.small}>Google Play purchasing is not configured for this package yet.</Text>) : !FEATURED_PURCHASE_ALLOWED ? (
             <Text style={styles.err} testID="featured-not-available-in-app">{tx("Featured purchases are not available in the mobile app yet.", "फ़ीचर्ड खरीदारी अभी मोबाइल ऐप में उपलब्ध नहीं है।")}</Text>
           ) : !plans.data?.payments_configured ? (
             <Text style={styles.err} testID="payments-not-configured">{tx("Payments are not configured yet. Please try later.", "भुगतान अभी कॉन्फ़िगर नहीं है। कृपया बाद में प्रयास करें।")}</Text>
@@ -92,14 +108,14 @@ export default function FeatureListing() {
           ) : (
             <Button
               label={selected ? tx(`Pay ₹${selected.price_inr}`, `₹${selected.price_inr} भुगतान करें`) : tx("Choose a plan", "प्लान चुनें")}
-              disabled={!selected}
+              disabled={!selected || !!order || result?.kind === "pending"}
               loading={create.isPending || verify.isPending}
               onPress={() => create.mutate()}
               icon="lock-closed-outline"
               testID="pay-btn"
             />
           )}
-          <Text style={styles.small}>{tx("Payments are processed securely by Razorpay. Featuring starts only after the payment is verified.", "भुगतान Razorpay द्वारा सुरक्षित रूप से होता है। भुगतान सत्यापन के बाद ही फ़ीचर शुरू होगा।")}</Text>
+          {Platform.OS !== "android" && <Text style={styles.small}>{tx("Payments are processed securely by Razorpay. Featuring starts only after the payment is verified.", "भुगतान Razorpay द्वारा सुरक्षित रूप से होता है। भुगतान सत्यापन के बाद ही फ़ीचर शुरू होगा।")}</Text>}
         </ScrollView>
       )}
       <RazorpayCheckout

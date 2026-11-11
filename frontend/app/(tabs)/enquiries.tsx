@@ -1,9 +1,9 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
-import React from "react";
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, Text, View } from "react-native";
+import { useFocusEffect, useRouter } from "expo-router";
+import React, { useCallback } from "react";
+import { ActivityIndicator, AppState, FlatList, Pressable, RefreshControl, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, fileUrl } from "@/src/api";
@@ -25,6 +25,15 @@ export default function Enquiries() {
   const { user } = useAuth();
   const router = useRouter();
   const q = useQuery({ queryKey: ["enquiries", user?.user_id], queryFn: () => api<{ items: Enquiry[] }>("/enquiries/me"), enabled: !!user });
+  const { refetch } = q;
+  useFocusEffect(useCallback(() => {
+    if (!user) return;
+    const refresh = () => { if (AppState.currentState === "active") void refetch(); };
+    refresh();
+    const timer = setInterval(refresh, 30000);
+    const subscription = AppState.addEventListener("change", state => { if (state === "active") refresh(); });
+    return () => { clearInterval(timer); subscription.remove(); };
+  }, [user, refetch]));
 
   const statusLabel = (s: string) => (s === "contacted" ? t("statusContacted") : s === "closed" ? t("statusClosed") : t("statusNew"));
   const intentLabel = (s: string) => (s === "site_visit" ? t("intentVisit") : s === "callback" ? t("intentCallback") : t("intentInfo"));

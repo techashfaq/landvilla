@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Literal, Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
@@ -252,8 +252,11 @@ async def unblock_from_enquiry(enq_id: str, user: dict = Depends(current_user)):
 
 
 @router.get("/admin/reports")
-async def admin_reports(status: str = "open", admin: dict = Depends(admin_user)):
-    docs = await db.abuse_reports.find({"status": status}, {"_id": 0}).sort("created_at", -1).to_list(200)
+async def admin_reports(status: Literal["open", "resolved"] = "open", q: str = Query("", max_length=100), page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=200), admin: dict = Depends(admin_user)):
+    flt = {"status": status}
+    if q:
+        flt["$or"] = [{key: {"$regex": re.escape(q), "$options": "i"}} for key in ("id", "target_id", "reason", "note")]
+    docs = await db.abuse_reports.find(flt, {"_id": 0}).sort([("created_at", -1), ("id", 1)]).skip((page - 1) * limit).limit(limit).to_list(limit)
     out = []
     for d in docs:
         x = clean(d)
@@ -265,7 +268,7 @@ async def admin_reports(status: str = "open", admin: dict = Depends(admin_user))
             x["target_label"] = f"Enquiry {d.get('target_id') or d.get('enquiry_id')}"
         out.append(x)
     deletion = await db.deletion_requests.find({"status": "open"}, {"_id": 0}).sort("created_at", -1).to_list(100)
-    return {"items": out, "deletion_requests": [clean(r) for r in deletion]}
+    return {"items": out, "deletion_requests": [clean(r) for r in deletion], "total": await db.abuse_reports.count_documents(flt), "page": page, "limit": limit}
 
 
 class ResolveIn(BaseModel):
@@ -296,14 +299,21 @@ async def admin_resolve_report(rep_id: str, body: ResolveIn, admin: dict = Depen
     if body.action == "remove_listing":
         if r.get("target_type") != "property":
             raise HTTPException(400, "Not a listing report")
+        prop = await db.properties.find_one({"id": r["target_id"]})
+        if not prop or prop.get("owner_user_id") == admin["user_id"]:
+            raise HTTPException(403, "Another administrator must review your own listing")
         await db.properties.update_one({"id": r["target_id"]}, {"$set": {"listing_status": "rejected", "featured": False,
                                         "moderation": {"status": "rejected", "note": f"Removed after report: {body.note}", "by": admin["user_id"], "at": now()}}})
     elif body.action == "suspend_user":
         target = r.get("reported_user_id")
         if not target:
             raise HTTPException(400, "No user on this report")
-        await db.users.update_one({"user_id": target}, {"$set": {"suspended": True, "suspended_at": now()}})
+        account = await db.users.find_one({"user_id": target})
+        if not account or target == admin["user_id"] or account.get("role") == "admin":
+            raise HTTPException(403, "This account cannot be suspended from a report")
+        await db.users.update_one({"user_id": target, "role": {"$ne": "admin"}}, {"$set": {"suspended": True, "suspended_at": now()}})
         await db.user_sessions.delete_many({"user_id": target})
+        await db.properties.update_many({"owner_user_id": target, "listing_status": "active"}, {"$set": {"listing_status": "suspended", "updated_at": now()}, "$push": {"moderation_history": {"status": "suspended", "by": admin["user_id"], "at": now(), "note": body.note}}})
     await db.abuse_reports.update_one({"id": rep_id}, {"$set": {"status": "resolved", "resolution": body.action, "resolution_note": body.note,
                                                                 "resolved_by": admin["user_id"], "resolved_at": now()}})
     await audit(admin["user_id"], f"report.{body.action}", rep_id, {"note": body.note})

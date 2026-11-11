@@ -166,9 +166,9 @@ class FeaturedRanking(unittest.IsolatedAsyncioTestCase):
 
     async def test_renewal_priority_and_duplicate_fulfillment(self):
         await self.fixtures()
-        await self.add("expired", True, T, age=5)
+        await self.add("expired", True, T, age=5, owner_user_id="owner")
         await self.add("ordinary")
-        order = {"id": "renewal", "property_id": "expired", "status": "created", "duration_days": 7}
+        order = {"id": "renewal", "user_id": "owner", "property_id": "expired", "status": "created", "duration_days": 7}
         await self.db.payment_orders.insert_one(order)
         class Session:
             async def __aenter__(self): return self

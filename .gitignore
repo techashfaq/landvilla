@@ -132,3 +132,9 @@ backups/
 *.env
 credentials.json
 .credentials
+.pytest_cache/
+*.bson
+*.dump
+*.pfx
+*.crt
+*.cer

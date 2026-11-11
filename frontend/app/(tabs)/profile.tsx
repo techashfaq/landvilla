@@ -102,6 +102,7 @@ export default function Profile() {
               ["list-outline", tx("My listings", "मेरी लिस्टिंग"), "/listings", "profile-my-listings-link"],
               ["person-outline", tx("Edit profile", "प्रोफ़ाइल बदलें"), "/account", "profile-edit-link"],
               ["receipt-outline", tx("Payment history", "भुगतान इतिहास"), "/payments", "profile-payments-link"],
+              ["briefcase-outline", tx("Broker dashboard", "ब्रोकर डैशबोर्ड"), "/broker", "profile-broker-link"],
               ["mail-unread-outline", tx("Lead inbox", "लीड इनबॉक्स"), "/leads", "profile-leads-link"],
             ] as const).map(([icon, label, href, tid]) => (
               <Pressable key={href} testID={tid} onPress={() => router.push(href as any)} style={styles.linkRow}>

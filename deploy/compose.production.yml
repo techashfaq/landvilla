@@ -1,0 +1,26 @@
+# Target-neutral artifact only. Supply secrets via an external access-controlled file.
+services:
+  api:
+    build:
+      context: ../backend
+    env_file:
+      - ${LANDVILLA_ENV_FILE:?Set an external environment file path}
+    environment:
+      APP_ENV: production
+      SEED_ON_STARTUP: "false"
+      SEED_DEMO_LISTINGS: "false"
+      SEED_TEST_SESSIONS: "false"
+    ports:
+      - "127.0.0.1:8000:8000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    stop_grace_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

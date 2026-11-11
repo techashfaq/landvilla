@@ -1,11 +1,13 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
 import { ActivityIndicator, Linking, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useAuth } from "@/src/auth";
+import { useFocusedRefresh } from "@/src/useFocusedRefresh";
 import { api } from "@/src/api";
 import { SafetyActions } from "@/src/components/SafetyActions";
 import { Thread } from "@/src/components/Thread";
@@ -17,6 +19,7 @@ import { LEAD_STATUS } from "@/src/lister";
 import { fonts, makeStyles, useTheme } from "@/src/theme";
 
 export default function LeadDetail() {
+  const { user, loading } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const styles = useStyles();
@@ -26,20 +29,25 @@ export default function LeadDetail() {
   const toast = useToast();
   const qc = useQueryClient();
   const [note, setNote] = useState("");
-  const key = ["lead", id];
-  const q = useQuery({ queryKey: key, queryFn: () => api<any>(`/leads/${id}`) });
+  const key = ["lead", user?.user_id, id];
+  const q = useQuery({ queryKey: key, enabled: !!user && !!id, queryFn: () => api<any>(`/leads/${id}`) });
+  useFocusedRefresh(q.refetch, !!user && !!id);
   const upd = useMutation({
     mutationFn: (body: any) => api(`/leads/${id}`, { method: "PATCH", body }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: key }); qc.invalidateQueries({ queryKey: ["leads"] }); toast.show(tx("Lead updated", "लीड अपडेट हुई"), "success"); },
+    onSuccess: (_data, body) => { if (body.note) setNote(""); qc.invalidateQueries({ queryKey: key }); qc.invalidateQueries({ queryKey: ["leads"] }); toast.show(tx("Lead updated", "लीड अपडेट हुई"), "success"); },
     onError: (e: any) => toast.show(e.message, "error"),
   });
   const l = q.data;
   const back = () => (router.canGoBack() ? router.back() : router.replace("/leads"));
 
+  if (loading) return <ActivityIndicator />;
+  if (!user) return <Redirect href="/login" />;
+  if (q.isError) return <EmptyState icon="cloud-offline-outline" title={q.error.message} cta="Retry" onPress={() => q.refetch()} />;
   if (q.isLoading) return <View style={[styles.screen, { justifyContent: "center" }]}><ActivityIndicator color={colors.brandPrimary} /></View>;
   if (!l) return <View style={[styles.screen, { paddingTop: insets.top }]}><EmptyState icon="alert-circle-outline" title={tx("Lead not found", "लीड नहीं मिली")} cta={tx("Back", "वापस")} onPress={back} testID="lead-error" /></View>;
 
   const followIn = (days: number) => {
+    if (upd.isPending) return;
     const d = new Date();
     d.setDate(d.getDate() + days);
     d.setHours(10, 0, 0, 0);
@@ -81,7 +89,7 @@ export default function LeadDetail() {
           <Text style={styles.label}>{tx("Status", "स्थिति")}</Text>
           <View style={styles.row}>
             {Object.entries(LEAD_STATUS).map(([k, v]) => (
-              <Chip key={k} label={tx(v.en, v.hi)} selected={l.status === k} onPress={() => upd.mutate({ status: k })} testID={`lead-set-${k}`} />
+              <Chip key={k} label={tx(v.en, v.hi)} selected={l.status === k} onPress={() => { if (!upd.isPending) upd.mutate({ status: k }); }} testID={`lead-set-${k}`} />
             ))}
           </View>
           <Text style={styles.label}>{tx("Follow-up reminder", "फ़ॉलो-अप रिमाइंडर")}</Text>
@@ -99,7 +107,7 @@ export default function LeadDetail() {
             <Text key={n.id} style={styles.note}>• {n.text} <Text style={styles.small}>({new Date(n.at).toLocaleDateString(lang === "hi" ? "hi-IN" : "en-IN", { day: "numeric", month: "short" })})</Text></Text>
           ))}
           <TextInput testID="lead-note-input" value={note} onChangeText={setNote} placeholder={tx("e.g. Called, visit on Sunday", "जैसे कॉल किया, रविवार को विज़िट")} placeholderTextColor={colors.muted} style={styles.input} maxLength={1000} />
-          <Button label={tx("Add note", "नोट जोड़ें")} variant="outline" disabled={!note.trim()} loading={upd.isPending} onPress={() => { upd.mutate({ note }); setNote(""); }} testID="lead-add-note-btn" />
+          <Button label={tx("Add note", "नोट जोड़ें")} variant="outline" disabled={!note.trim() || upd.isPending} loading={upd.isPending} onPress={() => { upd.mutate({ note }); }} testID="lead-add-note-btn" />
         </View>
 
         <View style={styles.card}>

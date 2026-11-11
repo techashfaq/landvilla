@@ -1,10 +1,10 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import * as ImagePicker from "expo-image-picker";
 import { Image } from "expo-image";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Linking, Platform, Pressable, Text, View } from "react-native";
 
-import { API_BASE, fileUrl, authHeaders } from "@/src/api";
+import { API_BASE, fileUrl, authHeaders, getApiSessionVersion } from "@/src/api";
 import { useToast } from "@/src/components/Toast";
 import { useLang } from "@/src/i18n";
 import { fonts, makeStyles, useTheme } from "@/src/theme";
@@ -22,56 +22,81 @@ async function readError(res: Response) {
 }
 
 export async function uploadFile(asset: { uri: string; fileName?: string | null; name?: string; mimeType?: string | null }, kind: string) {
-  const res = await uploadForm(`${API_BASE}/uploads`, {
-    headers: await authHeaders(),
-    fields: { kind },
-    files: { file: { uri: asset.uri, name: asset.fileName || asset.name || "upload.jpg", mimeType: asset.mimeType || "image/jpeg" } },
-  });
-  if (!res.ok) throw new Error(await readError(res));
-  return (await res.json()) as { id: string; url: string; content_type: string };
+  const headers = await authHeaders();
+  const session = getApiSessionVersion();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60000);
+  try {
+    const res = await uploadForm(`${API_BASE}/uploads`, {
+      headers, signal: controller.signal,
+      fields: { kind },
+      files: { file: { uri: asset.uri, name: asset.fileName || asset.name || "upload.jpg", mimeType: asset.mimeType || "image/jpeg" } },
+    });
+    if (!res.ok) throw new Error(res.status >= 500 ? "Upload unavailable. Please retry." : await readError(res));
+    const data = await res.json();
+    if (session !== getApiSessionVersion()) throw new Error("Session changed. Please retry.");
+    if (!data || typeof data.id !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(data.id) || data.url !== `/api/files/${data.id}`) throw new Error("Invalid upload response. Please retry.");
+    return data as { id: string; url: string; content_type: string };
+  } finally { clearTimeout(timer); }
+
 }
 
-export function PhotoPicker({ photos, onChange, max = 10 }: { photos: Photo[]; onChange: (p: Photo[]) => void; max?: number }) {
+export function PhotoPicker({ photos, onChange, max = 10, disabled = false, onBusyChange }: { photos: Photo[]; onChange: (p: Photo[]) => void; max?: number; disabled?: boolean; onBusyChange?: (busy: boolean) => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { tx } = useLang();
   const toast = useToast();
+  const locked = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const [failed, setFailed] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [busy, setBusy] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [progress, setProgress] = useState("");
 
-  const pick = async () => {
-    // Android uses the system Photo Picker, which needs no media permission.
-    const perm = Platform.OS === "android" ? { granted: true, canAskAgain: true, status: "granted" } : await ImagePicker.getMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      if (!perm.canAskAgain && perm.status === "denied") {
-        setBlocked(true);
-        return;
-      }
-      const req = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!req.granted) {
-        setBlocked(!req.canAskAgain);
-        toast.show(tx("Photo access is needed to add property photos", "प्रॉपर्टी फ़ोटो जोड़ने के लिए फ़ोटो की अनुमति चाहिए"), "error");
-        return;
-      }
-    }
-    setBlocked(false);
-    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: true, selectionLimit: max - photos.length, quality: 0.7 });
-    if (r.canceled) return;
+  const pick = async (retry = false) => {
+    if (locked.current || disabled || photos.length >= max) return;
+    locked.current = true;
     setBusy(true);
+    onBusyChange?.(true);
     const added: Photo[] = [];
     try {
-      for (const a of r.assets.slice(0, max - photos.length)) {
-        setProgress(`Uploading ${added.length + 1} of ${Math.min(r.assets.length, max - photos.length)}`);
-        const up = await uploadFile(a, "property_photo");
-        added.push({ id: up.id, url: up.url });
+      let assets = failed;
+      if (!retry) {
+        // Android's system Photo Picker does not need media-library permission.
+        const perm = Platform.OS === "android" ? { granted: true } : await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) { setBlocked(true); return; }
+        setBlocked(false);
+        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: true, selectionLimit: max - photos.length, quality: 0.7 });
+        if (result.canceled) return;
+        assets = result.assets;
       }
-    } catch (e: any) {
-      toast.show(e.message, "error");
+      const selected = assets.slice(0, max - photos.length);
+      const failures: ImagePicker.ImagePickerAsset[] = [];
+      for (let i = 0; i < selected.length; i++) {
+        if (!mounted.current) return;
+        setProgress(`Uploading ${i + 1} of ${selected.length}`);
+        try {
+          const up = await uploadFile(selected[i], "property_photo");
+          added.push({ id: up.id, url: up.url });
+        } catch {
+          failures.push(selected[i]);
+        }
+      }
+      if (mounted.current) {
+        setFailed(failures);
+        if (failures.length) toast.show(`${failures.length} photo(s) failed to upload. Retry or remove them below.`, "error");
+      }
+    } catch {
+      if (mounted.current) toast.show("Could not open photos. Please try again.", "error");
     } finally {
-      setBusy(false);
-      setProgress("");
-      onChange([...photos, ...added]);
+      locked.current = false;
+      if (mounted.current) {
+        if (added.length) onChange([...photos, ...added]);
+        setBusy(false);
+        setProgress("");
+        onBusyChange?.(false);
+      }
     }
   };
 
@@ -84,19 +109,24 @@ export function PhotoPicker({ photos, onChange, max = 10 }: { photos: Photo[]; o
           <View key={p.id} style={styles.tile} testID={`photo-tile-${i}`}>
             <Image source={{ uri: fileUrl(p.url) }} style={styles.img} contentFit="cover" />
             {i === 0 && <Text style={styles.cover}>{tx("Cover", "कवर")}</Text>}
-            {i > 0 && <Pressable disabled={busy} accessibilityLabel="Move photo earlier" style={{ position: "absolute", left: 4, top: 4, backgroundColor: "white", padding: 6 }} onPress={() => { const next = [...photos]; [next[i - 1], next[i]] = [next[i], next[i - 1]]; onChange(next); }}><Text>←</Text></Pressable>}
-            <Pressable disabled={busy} accessibilityLabel="Remove photo" testID={`photo-remove-${i}`} hitSlop={6} style={styles.remove} onPress={() => onChange(photos.filter((x) => x.id !== p.id))}>
+            {i > 0 && <Pressable disabled={busy || disabled} accessibilityLabel="Move photo earlier" style={{ position: "absolute", left: 4, top: 4, backgroundColor: "white", padding: 6 }} onPress={() => { const next = [...photos]; [next[i - 1], next[i]] = [next[i], next[i - 1]]; onChange(next); }}><Text>←</Text></Pressable>}
+            <Pressable disabled={busy || disabled} accessibilityLabel="Remove photo" testID={`photo-remove-${i}`} hitSlop={6} style={styles.remove} onPress={() => onChange(photos.filter((x) => x.id !== p.id))}>
               <Ionicons name="close" size={16} color={colors.onSurfaceInverse} />
             </Pressable>
           </View>
         ))}
         {photos.length < max && (
-          <Pressable testID="add-photo-btn" style={[styles.tile, styles.add]} onPress={pick} disabled={busy}>
+          <Pressable testID="add-photo-btn" style={[styles.tile, styles.add]} onPress={() => pick()} disabled={busy || disabled || failed.length > 0}>
             {busy ? <ActivityIndicator color={colors.brandPrimary} /> : <Ionicons name="camera-outline" size={28} color={colors.brandPrimary} />}
             <Text style={styles.addText}>{tx("Add photos", "फ़ोटो जोड़ें")}</Text>
           </Pressable>
         )}
       </View>
+      {failed.length > 0 && <View style={{ gap: 8, marginTop: 12 }}>
+        <Text accessibilityLiveRegion="polite">{failed.length} photos were not uploaded.</Text>
+        <Pressable disabled={busy || disabled || photos.length >= max} onPress={() => pick(true)}><Text style={styles.settingsText}>Retry failed uploads</Text></Pressable>
+        <Pressable disabled={busy || disabled} onPress={() => setFailed([])}><Text style={styles.settingsText}>Remove failed selections</Text></Pressable>
+      </View>}
       {blocked && (
         <Pressable testID="open-settings-btn" onPress={() => Linking.openSettings()} style={styles.settings}>
           <Ionicons name="settings-outline" size={18} color={colors.brandPrimary} />

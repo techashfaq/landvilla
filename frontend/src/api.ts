@@ -35,6 +35,8 @@ export async function authHeaders(): Promise<Record<string, string>> {
   }
   return authToken ? { Authorization: `Bearer ${authToken}`, "X-LV-Client": Platform.OS } : { "X-LV-Client": Platform.OS };
 }
+export function getApiSessionVersion() { return sessionVersion; }
+
 export function getApiToken() {
   return authToken;
 }
@@ -69,13 +71,25 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   const headers: Record<string, string> = { "Content-Type": "application/json", "X-LV-Client": Platform.OS };
   if (Platform.OS === "web") { if (csrfToken) headers["X-CSRF-Token"] = csrfToken; }
   else if (requestToken) headers.Authorization = `Bearer ${requestToken}`;
-  const res = await fetch(`${BASE}${path}`, {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  let res: Response;
+  let text: string;
+  try {
+    res = await fetch(`${BASE}${path}`, {
     method: opts.method ?? "GET",
     headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     credentials: Platform.OS === "web" ? "include" : "omit",
-  });
-  const text = await res.text();
+    signal: controller.signal,
+    });
+    text = await res.text();
+  } catch {
+    throw new ApiError(0, controller.signal.aborted
+      ? "The request timed out. Check your connection and try again."
+      : "Unable to connect. Check your connection and try again.");
+  } finally { clearTimeout(timeout); }
+  if (requestVersion !== sessionVersion) throw new ApiError(409, "Your session changed. Please retry.");
   let data: any = null;
   try { data = text ? JSON.parse(text) : null; } catch {
     if (res.status === 401 && requestVersion === sessionVersion && onUnauthorized) onUnauthorized();

@@ -353,3 +353,35 @@ test("Android plugin permits cleartext only for the development build", () => {
     assert.equal(result.modResults.manifest.application[0].$["android:usesCleartextTraffic"], profile === "development" ? "true" : "false");
   }
 });
+
+test("late private responses cannot survive logout or account replacement", async () => {
+  for (const token of [null, "replacement"]) {
+    let release;
+    const c = client(() => new Promise(resolve => { release = resolve; }));
+    c.setApiToken("original");
+    const pending = c.api("/me/profile");
+    c.setApiToken(token);
+    release(Response.json({ private: "previous account" }));
+    await assert.rejects(pending, error => error.status === 409);
+  }
+});
+
+test("offline errors are sanitized and recovery remains possible", async () => {
+  let offline = true;
+  const c = client(async () => { if (offline) throw Error("private-network-diagnostic"); return Response.json({ ok: true }); });
+  await assert.rejects(c.api("/saved"), error => error.status === 0 && /connection/.test(error.message) && !error.message.includes("private"));
+  offline = false;
+  assert.equal((await c.api("/saved")).ok, true);
+});
+
+test("request deadline aborts transport and is cleared after rejection", async () => {
+  let deadline, cleared = false;
+  const context = { exports: {}, require: () => ({ Platform: { OS: "android" } }), process: { env: { EXPO_PUBLIC_BACKEND_URL: "https://api.example.test" } }, URL, AbortController,
+    setTimeout: fn => { deadline = fn; return 1; }, clearTimeout: () => { cleared = true; },
+    fetch: (_url, opts) => new Promise((_resolve, reject) => opts.signal.addEventListener("abort", () => reject(Error("aborted")))) };
+  vm.runInNewContext(source, context);
+  const pending = context.exports.api("/saved");
+  deadline();
+  await assert.rejects(pending, error => error.status === 0 && /timed out/.test(error.message));
+  assert.equal(cleared, true);
+});

@@ -527,7 +527,8 @@ class Regressions(unittest.IsolatedAsyncioTestCase):
 
     async def test_fulfil_transaction_contract_and_duplicate(self):
         prop = self.db.raw.properties.find_one()
-        order = {"id": "order", "property_id": prop["id"], "status": "created", "duration_days": 7}
+        await self.db.properties.update_one({"id": prop["id"]}, {"$set": {"is_demo": False, "owner_user_id": "owner"}})
+        order = {"id": "order", "user_id": "owner", "property_id": prop["id"], "status": "created", "duration_days": 7}
         await self.db.payment_orders.insert_one(order)
         sentinel = object()
         class Session:
@@ -565,20 +566,26 @@ class Regressions(unittest.IsolatedAsyncioTestCase):
 
     async def test_payment_order_uses_server_price_and_blocks_native(self):
         prop = self.db.raw.properties.find_one()
-        await self.db.properties.update_one({"id": prop["id"]}, {"$set": {"owner_user_id": "owner"}})
-        await self.db.featured_plans.insert_one({"id": "plan", "slug": "unit", "name_en": "Unit", "price_inr": 299, "duration_days": 7, "is_active": True})
-        body = {"property_id": prop["id"], "plan_id": "plan"}
+        await self.db.properties.update_one({"id": prop["id"]}, {"$set": {"owner_user_id": "owner", "is_demo": False}})
+        await self.db.featured_plans.insert_one({"id": "plan", "slug": "unit", "name_en": "Unit", "price_inr": 299, "duration_days": 7, "is_active": True, "status": "active"})
+        body = {"property_id": prop["id"], "plan_id": "plan", "idempotency_key": "test-attempt-000001"}
         result = await self.api.post("/api/payments/featured/order", headers=self.headers, json=body)
         self.assertEqual(result.status_code, 403)
         observed = {}
         class Provider:
             async def __aenter__(self): return self
             async def __aexit__(self, *args): pass
-            async def post(self, *args, **kwargs): observed.update(kwargs["json"]); return httpx.Response(200, json={"id": "rzp-order"})
+            async def post(self, *args, **kwargs): observed.update(kwargs["json"]); return httpx.Response(200, json={"id": "order_test123", "amount": 29900, "currency": "INR"})
         headers = await self.browser_login()
         with patch.object(marketplace, "rzp_keys", return_value=("rzp_test_unit", "unit-secret")), patch.object(marketplace.httpx, "AsyncClient", return_value=Provider()):
             result = await self.api.post("https://localhost/api/payments/featured/order", headers=headers, json=body)
         self.assertEqual(result.status_code, 200); self.assertEqual(observed["amount"], 29900)
+        first_order = result.json()["order_id"]
+        with patch.object(marketplace, "rzp_keys", return_value=("rzp_test_unit", "unit-secret")), patch.object(marketplace.httpx, "AsyncClient") as provider:
+            retry = await self.api.post("https://localhost/api/payments/featured/order", headers=headers, json=body)
+            self.assertEqual(retry.status_code, 200)
+            self.assertEqual(retry.json()["order_id"], first_order)
+            provider.assert_not_called()
 
     async def browser_bootstrap(self):
         response = await self.api.get("https://localhost/api/auth/browser/bootstrap", headers={"Origin": "http://localhost:8081", "X-LV-Client": "web"})

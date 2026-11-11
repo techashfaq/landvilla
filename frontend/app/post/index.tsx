@@ -4,6 +4,7 @@ import React from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useFocusedRefresh } from "@/src/useFocusedRefresh";
 import { useAuth } from "@/src/auth";
 import { Badge, Button, EmptyState, ScreenHeader } from "@/src/components/ui";
 import { useLang } from "@/src/i18n";
@@ -18,6 +19,7 @@ export default function PostStart() {
   const { user } = useAuth();
   const router = useRouter();
   const q = useLister();
+  useFocusedRefresh(q.refetch, !!user);
   const broker = q.data?.broker;
   const back = () => (router.canGoBack() ? router.back() : router.replace("/profile"));
 
@@ -43,7 +45,7 @@ export default function PostStart() {
       <ScreenHeader title={tx("Post a property", "प्रॉपर्टी पोस्ट करें")} onBack={back} topInset={insets.top} />
       {q.isLoading ? (
         <ActivityIndicator color={colors.brandPrimary} style={{ marginTop: 40 }} />
-      ) : (
+      ) : q.isError ? <EmptyState icon="cloud-offline-outline" title={q.error.message} cta="Retry" onPress={() => q.refetch()} /> : (
         <ScrollView contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: insets.bottom + 24 }}>
           <Text style={styles.lead}>{tx("How are you posting this property?", "आप यह प्रॉपर्टी किस रूप में पोस्ट कर रहे हैं?")}</Text>
 
@@ -60,7 +62,7 @@ export default function PostStart() {
             testID="post-as-broker-btn"
             style={[styles.card, brokerStatus === "suspended" && { opacity: 0.6 }]}
             disabled={brokerStatus === "suspended"}
-            onPress={() => (q.data?.can_post_as_broker ? router.push("/post/form?as=broker") : brokerStatus === "pending" ? null : router.push("/broker/apply"))}
+            onPress={() => (q.data?.can_post_as_broker ? router.push("/post/form?as=broker") : router.push("/broker"))}
           >
             <View style={styles.iconWrap}><Ionicons name="briefcase-outline" size={26} color={colors.brandPrimary} /></View>
             <View style={{ flex: 1, gap: 4 }}>
@@ -78,6 +80,7 @@ export default function PostStart() {
             <Ionicons name="chevron-forward" size={20} color={colors.muted} />
           </Pressable>
 
+          <Button label={tx("Broker dashboard", "ब्रोकर डैशबोर्ड")} variant="outline" onPress={() => router.push("/broker")} />
           <Button label={tx("My listings", "मेरी लिस्टिंग")} variant="outline" icon="list-outline" onPress={() => router.push("/listings")} testID="go-my-listings-btn" />
         </ScrollView>
       )}

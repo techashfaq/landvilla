@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
+import { useLister } from "@/src/lister";
+import { useFocusedRefresh } from "@/src/useFocusedRefresh";
 import { useAuth } from "@/src/auth";
 import { storage } from "@/src/utils/storage";
 import { Photo, PhotoPicker } from "@/src/components/PhotoPicker";
@@ -46,7 +48,11 @@ export default function ListingForm() {
   const qc = useQueryClient();
   const { user, loading } = useAuth();
   const draftKey = `listing_draft.${user?.user_id ?? "guest"}.${id ?? "new"}`;
-  const { data: meta } = useMeta();
+  const metaQuery = useMeta();
+  const meta = metaQuery.data;
+  const hydrated = useRef<string | null>(null);
+  const submitting = useRef(false);
+  const [uploading, setUploading] = useState(false);
   const [f, setF] = useState<Form>(EMPTY);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [declared, setDeclared] = useState(false);
@@ -54,21 +60,23 @@ export default function ListingForm() {
   const [formErr, setFormErr] = useState("");
   const [postedAs, setPostedAs] = useState<"owner" | "broker">(as === "broker" ? "broker" : "owner");
 
+  const lister = useLister();
+  useFocusedRefresh(lister.refetch, !!user && postedAs === "broker");
   const existing = useQuery({ queryKey: ["listing-edit", id, user?.user_id], queryFn: () => api<any>(`/listings/${id}/edit`), enabled: !!id && !!user });
   useEffect(() => {
     const p = existing.data;
-    if (!p) return;
+    if (!p || hydrated.current === draftKey) return;
+    hydrated.current = draftKey;
     // Hydrate the editable draft once the requested listing arrives from the API.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setF({
       purpose: p.purpose, segment: p.segment, type: p.type, locality_id: p.locality_id, title_en: p.title_en, title_hi: p.title_hi === p.title_en ? "" : p.title_hi,
       description_en: p.description_en, price: String(p.price), bhk: p.bhk ? String(p.bhk) : "", bathrooms: p.bathrooms != null ? String(p.bathrooms) : "",
       area_sqft: String(p.area_sqft ?? ""), furnishing: p.furnishing ?? "", amenities: p.amenities ?? [],
       address: p.address ?? "", postal_code: p.postal_code ?? "",
     });
-    setPhotos((p.photo_ids ?? []).map((pid: string, i: number) => ({ id: pid, url: p.images[i] })));
+    setPhotos((p.photo_ids ?? []).map((pid: string, i: number) => ({ id: pid, url: p.images?.[i] ?? `/api/files/${pid}` })));
     setPostedAs(p.posted_by_role === "broker" ? "broker" : "owner");
-  }, [existing.data]);
+  }, [existing.data, draftKey]);
 
   const segments = meta?.categories.filter((c) => c.kind === "segment") ?? [];
   const types = useMemo(() => (meta?.property_types ?? []).filter((t) => f.segment === "new-projects" || t.segment === f.segment), [meta, f.segment]);
@@ -76,13 +84,18 @@ export default function ListingForm() {
   const set = (k: keyof Form, v: any) => setF((p) => ({ ...p, [k]: v }));
 
   const m = useMutation({
-    mutationFn: (body: any) => api(id ? `/listings/${id}` : "/listings", { method: id ? "PUT" : "POST", body }),
+    mutationFn: async (body: any) => {
+      const result = await api<any>(id ? `/listings/${id}` : "/listings", { method: id ? "PUT" : "POST", body });
+      if (!result?.id || result.listing_status !== "pending_review") throw new Error("Could not confirm submission. Check My listings before trying again.");
+      return result;
+    },
     onSuccess: () => {
       storage.removeItem(draftKey);
-      qc.invalidateQueries({ queryKey: ["my-listings"] });
+      qc.invalidateQueries();
       toast.show(tx("Submitted for review. Check My listings for status.", "समीक्षा के लिए भेजा गया। स्थिति मेरी लिस्टिंग में देखें।"), "success");
       router.replace("/listings");
     },
+    onSettled: () => { submitting.current = false; },
     onError: (e: any) => {
       setFormErr(e.message);
       toast.show(e.message, "error");
@@ -90,16 +103,17 @@ export default function ListingForm() {
   });
 
   const submit = () => {
+    if (uploading || submitting.current || m.isPending) return;
     const e: Record<string, string> = {};
     if (f.postal_code && !/^[1-9]\d{5}$/.test(f.postal_code)) e.postal_code = "Enter a valid six-digit postal code";
     if (!f.type) e.type = tx("Choose a property type", "प्रॉपर्टी प्रकार चुनें");
     if (!f.locality_id) e.locality = tx("Choose a locality", "इलाका चुनें");
     if (f.title_en.trim().length < 5) e.title = tx("Title must be at least 5 characters", "शीर्षक कम से कम 5 अक्षर का हो");
     if (f.description_en.trim().length < 20) e.description = tx("Description must be at least 20 characters", "विवरण कम से कम 20 अक्षर का हो");
-    const price = parseInt(f.price, 10);
-    if (!price || price < 1000) e.price = tx("Enter a valid price (min ₹1,000)", "सही कीमत लिखें (कम से कम ₹1,000)");
-    const area = parseInt(f.area_sqft, 10);
-    if (!area || area < 50) e.area = tx("Enter area in sq.ft (min 50)", "क्षेत्रफल वर्ग फुट में लिखें (कम से कम 50)");
+    const price = Number(f.price);
+    if (!Number.isSafeInteger(price) || price < 1000 || price > 10000000000) e.price = tx("Enter a price from ₹1,000 to ₹10,000,000,000", "सही कीमत लिखें (कम से कम ₹1,000)");
+    const area = Number(f.area_sqft);
+    if (!Number.isSafeInteger(area) || area < 50 || area > 10000000) e.area = tx("Enter area from 50 to 10,000,000 sq.ft", "क्षेत्रफल वर्ग फुट में लिखें (कम से कम 50)");
     if (selType?.has_bhk && f.type !== "pg-hostel" && !f.bhk) e.bhk = tx("Choose BHK", "BHK चुनें");
     if (photos.length === 0) e.photos = tx("Add at least one photo", "कम से कम एक फ़ोटो जोड़ें");
     if (!declared) e.declared = tx("Please accept the declaration", "कृपया घोषणा स्वीकार करें");
@@ -109,6 +123,7 @@ export default function ListingForm() {
       setFormErr(tx("Please fix the highlighted fields", "कृपया चिह्नित फ़ील्ड ठीक करें"));
       return;
     }
+    submitting.current = true;
     m.mutate({
       posted_as: postedAs, purpose: f.purpose, segment: f.segment, type: f.type, locality_id: f.locality_id,
       title_en: f.title_en.trim(), title_hi: f.title_hi.trim(), description_en: f.description_en.trim(),
@@ -128,22 +143,29 @@ export default function ListingForm() {
     try {
       const draft = JSON.parse(raw);
       if (draft.version !== 1 || !draft.form || !Array.isArray(draft.photos) || !["owner", "broker"].includes(draft.postedAs)) throw new Error();
+      if (Object.entries(EMPTY).some(([key, value]) => Array.isArray(value) ? !Array.isArray(draft.form[key]) || draft.form[key].some((v: unknown) => typeof v !== "string") : typeof draft.form[key] !== "string") || !["buy", "rent"].includes(draft.form.purpose) || draft.photos.length > 10 || draft.photos.some((p: any) => !p || typeof p.id !== "string" || typeof p.url !== "string")) throw new Error();
       setF({ ...EMPTY, ...draft.form }); setPhotos(draft.photos); setPostedAs(draft.postedAs); setDeclared(false);
       toast.show(tx("Draft restored. Review before submitting.", "ड्राफ्ट बहाल हुआ। जमा करने से पहले जाँचें।"), "success");
     } catch { toast.show(tx("This draft could not be read", "यह ड्राफ्ट पढ़ा नहीं जा सका"), "error"); }
   };
 
-  if (loading || (id && existing.isLoading)) return <View style={[styles.screen, { justifyContent: "center" }]}><ActivityIndicator color={colors.brandPrimary} /></View>;
+  if (loading || metaQuery.isLoading || (id && existing.isLoading)) return <View style={[styles.screen, { justifyContent: "center" }]}><ActivityIndicator color={colors.brandPrimary} /></View>;
   if (!user) return <Redirect href="/login" />;
   if (id && existing.isError) return <View style={styles.screen}><Text>{existing.error.message}</Text><Button label="Retry" onPress={() => existing.refetch()} /></View>;
+
+  if (postedAs === "broker" && lister.isLoading) return <ActivityIndicator />;
+  if (postedAs === "broker" && lister.isError) return <View style={styles.screen}><Text>Could not verify broker eligibility.</Text><Button label="Retry" onPress={() => lister.refetch()} /></View>;
+  if (postedAs === "broker" && !lister.data?.can_post_as_broker) return <View style={styles.screen}><Text>Broker approval is required before submitting listings.</Text><Button label="Broker dashboard" onPress={() => router.replace("/broker")} /></View>;
+  if (metaQuery.isError) return <View style={styles.screen}><Text>Could not load property options.</Text><Button label="Retry" onPress={() => metaQuery.refetch()} /></View>;
+  if (id && ["expired", "sold_rented"].includes(existing.data?.listing_status)) return <View style={styles.screen}><Text>This listing can no longer be edited.</Text><Button label="My listings" onPress={() => router.replace("/listings")} /></View>;
 
   return (
     <View style={styles.screen}>
       <ScreenHeader title={id ? tx("Edit listing", "लिस्टिंग बदलें") : tx("New listing", "नई लिस्टिंग")} onBack={() => router.back()} topInset={insets.top} />
       <KeyboardAwareScrollView bottomOffset={24} contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32 }} keyboardShouldPersistTaps="handled">
         <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
-          <Button label={tx("Save draft", "ड्राफ्ट सहेजें")} onPress={saveDraft} variant="outline" disabled={m.isPending} style={{ flex: 1 }} />
-          <Button label={tx("Restore draft", "ड्राफ्ट खोलें")} onPress={loadDraft} variant="outline" disabled={m.isPending} style={{ flex: 1 }} />
+          <Button label={tx("Save draft", "ड्राफ्ट सहेजें")} onPress={saveDraft} variant="outline" disabled={m.isPending || uploading} style={{ flex: 1 }} />
+          <Button label={tx("Restore draft", "ड्राफ्ट खोलें")} onPress={loadDraft} variant="outline" disabled={m.isPending || uploading} style={{ flex: 1 }} />
         </View>
         <View style={styles.roleBanner} testID="posting-as-banner">
           <Text style={styles.roleText}>{tx("Posting as", "पोस्टिंग")}: {postedAs === "broker" ? tx("Verified Broker", "सत्यापित ब्रोकर") : tx("Owner", "मालिक")}</Text>
@@ -231,7 +253,7 @@ export default function ListingForm() {
             placeholder={tx("Describe the property, road access, nearby landmarks…", "प्रॉपर्टी, सड़क, आसपास के स्थानों के बारे में लिखें…")} maxLength={2000} />
         </Section>
         <Section title={tx("Photos", "फ़ोटो")} error={errors.photos}>
-          <PhotoPicker photos={photos} onChange={setPhotos} />
+          <PhotoPicker photos={photos} onChange={setPhotos} disabled={m.isPending} onBusyChange={setUploading} />
         </Section>
 
         <Section title={tx("Address · Ujjain, Madhya Pradesh", "पता · उज्जैन, मध्य प्रदेश")} error={errors.postal_code}>
@@ -252,7 +274,7 @@ export default function ListingForm() {
           </Text>
         </View>
         {!!formErr && <Text style={styles.formErr} testID="form-error">{formErr}</Text>}
-        <Button label={id ? tx("Resubmit for review", "फिर से समीक्षा हेतु भेजें") : tx("Submit for review", "समीक्षा हेतु भेजें")} onPress={submit} loading={m.isPending} testID="form-submit-btn" style={{ marginTop: 16 }} />
+        <Button label={id ? tx("Resubmit for review", "फिर से समीक्षा हेतु भेजें") : tx("Submit for review", "समीक्षा हेतु भेजें")} onPress={submit} disabled={uploading} loading={m.isPending} testID="form-submit-btn" style={{ marginTop: 16 }} />
       </KeyboardAwareScrollView>
     </View>
   );

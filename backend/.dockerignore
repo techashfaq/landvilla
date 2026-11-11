@@ -1,0 +1,6 @@
+*
+!*.py
+!requirements-production.txt
+!scripts/
+!scripts/*.py
+!Dockerfile

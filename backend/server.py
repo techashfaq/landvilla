@@ -3,9 +3,11 @@ import hashlib
 import os
 import re
 import uuid
+import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 import httpx
 from dotenv import load_dotenv
@@ -16,9 +18,12 @@ from pymongo.errors import PyMongoError
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from production_runtime import validate_environment, SafeJSONFormatter, dependency_readiness, readiness_storage_client
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
+validate_environment(os.environ)
 
 from seed import norm, seed_all  # noqa: E402
 from visibility import public_property_filter
@@ -39,19 +44,41 @@ EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("landvilla")
+if PRODUCTION:
+    for handler in logging.getLogger().handlers:
+        handler.setFormatter(SafeJSONFormatter())
 
-app = FastAPI(title="LANDVILLA API")
+app = FastAPI(title="LANDVILLA API", docs_url=None if PRODUCTION else "/docs", redoc_url=None if PRODUCTION else "/redoc")
+if PRODUCTION:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=[h.strip() for h in os.environ["TRUSTED_HOSTS"].split(",")])
 
 
 @app.middleware("http")
 async def private_response_headers(request: Request, call_next):
+    request_id = uuid.uuid4().hex
+    started = time.monotonic()
     try:
+        if PRODUCTION and request.url.path not in ("/health", "/ready"):
+            if request.url.scheme != "https":
+                raise HTTPException(400, "HTTPS required")
+            if request.method not in ("GET", "HEAD", "OPTIONS") and request.url.path.startswith(("/api/auth/", "/api/uploads", "/api/account/", "/api/admin/", "/api/payments/", "/api/legal/delete-account")) and request.url.path not in ("/api/payments/razorpay/webhook", "/api/payments/play/notifications"):
+                # Uvicorn must trust only the actual ingress proxy addresses.
+                await identity.throttle("ingress:" + (request.client.host if request.client else "unknown"), 120, 60)
         await browser_sessions.guard(request)
         response = await call_next(request)
     except HTTPException as exc:
         response = JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
     except PyMongoError:
         response = JSONResponse(status_code=503, content={"detail": "Database temporarily unavailable"})
+    except Exception:
+        if not PRODUCTION:
+            raise
+        response = JSONResponse(status_code=500, content={"detail": "Request could not be completed"})
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    if PRODUCTION:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
+    logger.info("request", extra={"event": "http_request", "request_id": request_id, "status": response.status_code, "duration_ms": round((time.monotonic() - started) * 1000)})
     if request.url.path.startswith(("/api/auth/", "/api/me/")):
         response.headers["Cache-Control"] = "no-store"
         response.headers["Pragma"] = "no-cache"
@@ -75,7 +102,17 @@ async def database_error(request: Request, exc: PyMongoError):
 
 @app.get("/ready", include_in_schema=False)
 async def readiness():
-    await db.command("ping")
+    try:
+        if PRODUCTION:
+            probe = readiness_storage_client(os.environ)
+            try:
+                await asyncio.wait_for(dependency_readiness(db, probe, os.environ["S3_BUCKET"]), timeout=5)
+            finally:
+                probe.close()
+        else:
+            await db.command("ping")
+    except Exception:
+        return JSONResponse(status_code=503, content={"status": "unavailable"}, headers={"Cache-Control": "no-store"})
     return {"status": "ready"}
 
 
@@ -154,9 +191,13 @@ async def current_user(request: Request) -> dict:
     return user
 
 
-async def admin_user(user: dict = Depends(current_user)) -> dict:
+async def admin_user(request: Request, user: dict = Depends(current_user)) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
+    permissions = user.get("admin_permissions")
+    section = request.url.path.removeprefix("/api/admin/").split("/")[0]
+    if permissions is not None and section != "stats" and section not in permissions:
+        raise HTTPException(403, "This staff account is not permitted to perform this operation")
     return user
 
 
@@ -265,7 +306,7 @@ async def enrich(props: List[dict], user: Optional[dict] = None, *, cutoff: Opti
     for p in props:
         d = clean(p)
         d["featured"] = effective_featured(p, cutoff)
-        for k in ("demo_key", "owner_user_id", "photo_hashes", "duplicate_flags", "moderation", "moderation_history", "owner_declaration", "photo_ids"):
+        for k in ("demo_key", "owner_user_id", "photo_hashes", "duplicate_flags", "moderation", "moderation_history", "owner_history", "owner_declaration", "photo_ids"):
             d.pop(k, None)
         l = locs.get(p["locality_id"])
         d["locality"] = loc_public(l) if l else None
@@ -523,16 +564,16 @@ async def check_key_conflicts(city_id, keys, exclude_id=None):
 
 
 @api.get("/admin/localities")
-async def admin_list_localities(q: Optional[str] = None, include_inactive: bool = True, admin: dict = Depends(admin_user)):
+async def admin_list_localities(q: str = Query("", max_length=100), include_inactive: bool = True, page: int = Query(1, ge=1), limit: int = Query(1000, ge=1, le=1000), admin: dict = Depends(admin_user)):
     city = await get_city()
     flt: dict = {"city_id": city["id"]}
     if not include_inactive:
         flt["is_active"] = True
     if q:
         flt["search_keys"] = {"$regex": re.escape(norm(q)), "$options": "i"}
-    docs = await db.localities.find(flt, {"_id": 0, "search_keys": 0}).sort("name_en", 1).to_list(1000)
+    docs = await db.localities.find(flt, {"_id": 0, "search_keys": 0}).sort([("name_en", 1), ("id", 1)]).skip((page - 1) * limit).limit(limit).to_list(limit)
     counts = {c["_id"]: c["n"] async for c in db.properties.aggregate([{"$group": {"_id": "$locality_id", "n": {"$sum": 1}}}])}
-    return {"items": [{**clean(d), "listing_count": counts.get(d["id"], 0)} for d in docs]}
+    return {"items": [{**clean(d), "listing_count": counts.get(d["id"], 0)} for d in docs], "total": await db.localities.count_documents(flt), "page": page, "limit": limit}
 
 
 @api.post("/admin/localities")
@@ -663,12 +704,22 @@ async def root():
 
 
 import marketplace  # noqa: E402  (needs the helpers above)
+
+@api.get("/content")
+async def published_content(kind: Literal["home-banner", "faq", "support"]):
+    docs = await db.cms_content.find({"kind": kind, "status": "published"}, {"_id": 0, "id": 1, "title": 1, "body": 1, "link": 1}).sort("updated_at", -1).limit(100).to_list(100)
+    return {"items": docs}
+
 import extras  # noqa: E402
 import identity  # noqa: E402
 import browser_sessions  # noqa: E402
 
 app.include_router(api)
 app.include_router(marketplace.router)
+import admin_operations  # noqa: E402
+app.include_router(admin_operations.router)
+import play_billing  # noqa: E402
+app.include_router(play_billing.router)
 app.include_router(extras.router)
 app.include_router(identity.router)
 app.include_router(browser_sessions.router)

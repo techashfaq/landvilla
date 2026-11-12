@@ -47,6 +47,10 @@ All48 inherited changed/untracked files were inventoried in the prior final revi
 
 This report is not a production acceptance certificate. Code/configuration completion and executed local checks are separated from CI Linux evidence and external gates. No known-good production rollback artifact is established. Follow PRODUCTION_EXTERNAL_BLOCKERS.md and the verification matrix; do not publish production ingress until every required gate has actual evidence and approval.
 
+Run43245360600 at ad1acd44cf1a185ecaadcd852d80c3d37af2a9a0 passed its complete disposable Linux runtime step. Image scanning is a separate gate. This is not EC2 rehearsal: the owner explicitly prohibits EC2 container operations and production changes. Production remains BLOCKED by incomplete runtime inputs, host capacity and source mismatch, provider/backup/DNS/TLS/network acceptance and a missing known-good rollback target. No production release image or deployed SHA is asserted.
+
+The separate image scan completed and FAILED with122High/4Critical package-advisory matches. PRODUCTION_IMAGE_SECURITY_REVIEW.md records counts, material vendor checks, unresolved applicability and remediation prerequisites. No finding was suppressed and the workflow remains red. **Outcome: REHEARSAL PASSED — PRODUCTION RELEASE BLOCKED**, limited to disposable GitHub runtime acceptance. A passing application dependency feed scan did not cover OS/base/embedded image dependencies.
+
 ## Reviewed release path inventory
 
 - `.github/workflows/readiness.yml`
@@ -135,4 +139,17 @@ This report is not a production acceptance certificate. Code/configuration compl
 - `web/tests/phase2-security.test.ts`
 - `web/tests/production-proxy.test.ts`
 
-Source/config/test implementation commit: `2942f59d0adecad483f1fe42a9719dee72c9b251`. Documentation follows in a separate commit; the pushed HEAD must be used for CI/release identity.
+Initial implementation commit: `2942f59d0adecad483f1fe42a9719dee72c9b251`; subsequent fixes and evidence are recorded in the verification matrix. Always compare the actual tested/pushed HEAD, not this historical implementation marker.
+
+Additional reviewed paths from runtime verification:
+
+- `docs/PRODUCTION_ENVIRONMENT_INVENTORY.md`
+- `scripts/inspect-production-inputs.py`
+- `scripts/scan-rehearsal-images.py`
+- `tests/test_environment_inventory.py`
+- `tests/test_release_artifacts.py`
+- `tests/test_rehearsal_tls.py`
+- `tests/test_rehearsal_prepare.py`
+- `docs/PRODUCTION_IMAGE_SECURITY_REVIEW.md`
+
+Runtime testing identified and corrected a real logout boundary defect: Starlette emits a quoted-empty deletion cookie, which the Web validator previously rejected with502. The validator now accepts that exact empty form only with Max-Age=0 and retains all security/duplicate-attribute checks. New tests preserve actual serialization. The rehearsal now has a Caddy-only ingress bridge, checked separately for collisions; its internal application bridge remains ordinary shared networking, not directional isolation. SMTP fixture CA reuse is idempotent across repeated setup; postrestart smoke repeats authentication and private media checks. Release artifact recording requires successful same-commit evidence and matching Linux image IDs/revision labels, not merely SHA-looking tags.

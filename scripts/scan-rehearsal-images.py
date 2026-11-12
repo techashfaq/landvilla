@@ -49,6 +49,8 @@ def main():
             package=match["artifact"]
             records.append({"id":vulnerability["id"],"severity":vulnerability["severity"],
                 "package":package["name"],"installed":package["version"],
+                "package_type":package.get("type"),
+                "locations":[item.get("path") for item in package.get("locations",[]) if item.get("path")],
                 "fix":vulnerability.get("fix"),"source":vulnerability.get("dataSource")})
         findings.append({"image":name,"reference":reference,"matches":records,
                          "database":report.get("descriptor",{}).get("db",{})})

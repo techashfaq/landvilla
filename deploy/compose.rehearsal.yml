@@ -146,6 +146,7 @@ services:
     <<: *runtime
     image: ${REHEARSAL_CADDY_IMAGE:?Reviewed Caddy 2.11.9 image digest required}
     user: "10001:10001"
+    networks: [rehearsal, ingress]
     command: [caddy, run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile]
     environment:
       LANDVILLA_INGRESS_TOKEN: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
@@ -163,6 +164,14 @@ services:
       timeout: 3s
       retries: 20
 networks:
+  # Only Caddy joins this bridge so Docker can publish the loopback TLS port.
+  # Caddy has ordinary bridge egress; application dependencies remain internal.
+  ingress:
+    driver: bridge
+    enable_ipv6: false
+    ipam:
+      config:
+        - subnet: ${REHEARSAL_INGRESS_SUBNET:?Separate collision-checked private ingress subnet required}
   rehearsal:
     driver: bridge
     internal: true

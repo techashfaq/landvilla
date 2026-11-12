@@ -18,12 +18,16 @@ spec.loader.exec_module(checker)
 class HostInventory(unittest.TestCase):
     def test_null_builtin_network_ipam_and_real_collision(self):
         networks=[{"IPAM":{"Config":None}},{"IPAM":{"Config":[{"Subnet":"172.17.0.0/16"}]}}]
-        results=["host bridge",json.dumps(networks),'[{"dst":"default"},{"dst":"10.1.0.0/16"}]',""]
+        results=["host bridge",json.dumps(networks),'[{"dst":"default"},{"dst":"10.1.0.0/16"}]',"",""]
         with patch.object(checker.subprocess,"run",side_effect=[subprocess.CompletedProcess([],0,s,"") for s in results]):
             checker.host_collisions(ipaddress.IPv4Network("172.20.240.0/24"))
         with patch.object(checker.subprocess,"run",side_effect=[subprocess.CompletedProcess([],0,s,"") for s in results[:2]]):
             with self.assertRaisesRegex(ValueError,"collision"):
                 checker.host_collisions(ipaddress.IPv4Network("172.17.240.0/24"))
+        results[-1]="landvilla-rehearsal_mongo_data"
+        with patch.object(checker.subprocess,"run",side_effect=[subprocess.CompletedProcess([],0,s,"") for s in results]):
+            with self.assertRaisesRegex(ValueError,"reuse review"):
+                checker.host_collisions(ipaddress.IPv4Network("172.20.240.0/24"))
 
 
 class RehearsalConfiguration(unittest.TestCase):
@@ -33,7 +37,7 @@ class RehearsalConfiguration(unittest.TestCase):
         cls.addClassCleanup(cls.work.cleanup)
         env=Path(cls.work.name)/"synthetic.env"
         # Test-only addresses/digests; never approved deployment allocations/artifacts.
-        values={"REHEARSAL_SUBNET":"172.30.249.0/24","REHEARSAL_DYNAMIC_RANGE":"172.30.249.128/25","REHEARSAL_WEB_IP":"172.30.249.10"}
+        values={"REHEARSAL_SUBNET":"172.30.249.0/24","REHEARSAL_INGRESS_SUBNET":"172.30.250.0/24","REHEARSAL_DYNAMIC_RANGE":"172.30.249.128/25","REHEARSAL_WEB_IP":"172.30.249.10"}
         for name,image in (("API","fixture-api"),("WEB","fixture-web"),("MONGO","mongo:8"),("MAIL","axllent/mailpit:v1.29"),("CADDY","caddy:2.11.9-alpine")):
             values["REHEARSAL_"+name+"_IMAGE"]=image+"@sha256:"+"a"*64
         env.write_text("\n".join(k+"="+v for k,v in values.items()),encoding="utf-8")
@@ -71,6 +75,13 @@ class RehearsalConfiguration(unittest.TestCase):
     def test_invalid_network_identity(self):
         self.reject(lambda m:m["services"]["web"]["networks"]["rehearsal"].update(ipv4_address="172.30.249.140"))
         self.reject(lambda m:m["services"]["api"]["environment"].update(FORWARDED_ALLOW_IPS="*"))
+
+    def test_only_caddy_can_join_separate_ingress_bridge(self):
+        self.reject(lambda m:m["networks"]["ingress"]["ipam"]["config"][0].update(subnet="172.30.249.0/24"))
+        self.reject(lambda m:m["services"]["api"]["networks"].update(ingress={}))
+        self.reject(lambda m:m["services"]["web"]["networks"].update(ingress={}))
+        self.reject(lambda m:m["networks"]["ingress"].update(external=True))
+        self.reject(lambda m:m["networks"]["ingress"].update(name="production-network"))
 
     def test_runtime_command_and_mail_relay_cannot_override_fixture(self):
         self.reject(lambda m:m["services"]["api"].update(command=["unreviewed"]))

@@ -39,20 +39,22 @@ def main():
     spec=importlib.util.spec_from_file_location("checker",ROOT/"scripts/check-rehearsal.py")
     checker=importlib.util.module_from_spec(spec)
     spec.loader.exec_module(checker)
-    selected=None
+    selected=[]
     # Candidates are selected only AFTER read-only comparison with actual local
     # routes/networks on this new disposable runner, never copied to EC2.
     for second in range(20,31):
         candidate=ipaddress.IPv4Network(f"172.{second}.240.0/24")
         try: checker.host_collisions(candidate)
         except ValueError: continue
-        selected=candidate
-        break
-    if selected is None: raise RuntimeError("No collision-free runner allocation")
+        selected.append(candidate)
+        if len(selected)==2: break
+    if len(selected)!=2: raise RuntimeError("Two collision-free runner allocations required")
+    backend_subnet,ingress_subnet=selected
     manifest=json.loads((ROOT/"deploy/reviewed-base-images.json").read_text())
     images={r["repository"]:r["repository"]+":"+r["tag"]+"@"+r["digest"] for r in manifest["images"]}
-    settings={"REHEARSAL_SUBNET":str(selected),"REHEARSAL_DYNAMIC_RANGE":str(list(selected.subnets(new_prefix=25))[1]),
-              "REHEARSAL_WEB_IP":str(selected.network_address+10),"REHEARSAL_MONGO_IMAGE":images["library/mongo"],
+    settings={"REHEARSAL_SUBNET":str(backend_subnet),"REHEARSAL_INGRESS_SUBNET":str(ingress_subnet),
+              "REHEARSAL_DYNAMIC_RANGE":str(list(backend_subnet.subnets(new_prefix=25))[1]),
+              "REHEARSAL_WEB_IP":str(backend_subnet.network_address+10),"REHEARSAL_MONGO_IMAGE":images["library/mongo"],
               "REHEARSAL_MAIL_IMAGE":images["axllent/mailpit"],"REHEARSAL_CADDY_IMAGE":images["library/caddy"]}
     versions={"docker_engine":run(["docker","version","--format","{{.Server.Version}}"]),
               "compose":run(["docker","compose","version","--short"])}

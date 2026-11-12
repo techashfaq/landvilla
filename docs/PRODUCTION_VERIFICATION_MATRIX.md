@@ -11,7 +11,7 @@ Date:12 November2026. PASS means executed within the stated scope; FAIL means ex
 | ESLint `--max-warnings 0` | Same Web install | Zero errors/warnings | PASS final local run | web-lint.log / command.json |
 | TypeScript `--noEmit --incremental false` | Same Web install | No errors | PASS final local run | web-types.log / command.json |
 | `node scripts/verify-production-build.mjs` | Environment-free isolated source copy | Complete standalone artifacts | PASS complete standalone artifact | web-build.log / command.json |
-| `unittest discover -s tests -p test_*.py -v` | Python + Compose5.7.1/Caddy2.11.9, synthetic loopback | All deployment/fixture tests | PASS42:23production Compose,5Caddy,9rehearsal/host inventory,2SDK/storage,1artifact identity,2input inventory | deployment-tests.log / command.json |
+| `unittest discover -s tests -p test_*.py -v` | Python + Compose5.7.1/Caddy2.11.9, synthetic loopback | All deployment/fixture tests | PASS44:23production Compose,5Caddy,10rehearsal/host inventory,1real TLS,2SDK/storage,1artifact identity,2input inventory | deployment-tests.log / command.json |
 | Caddy production native forwarding/health tests | Synthetic HTTP; TLS/SNI disabled in harness | Sanitize/replace custom claims, preserve browser context, health withdrawal/recovery | PASS included above | test_caddy_configuration.py |
 | Rehearsal Caddy adapt | Caddy2.11.9 native | Internal issuer, no ACME/production domain | PASS included above | test_rehearsal_deployment.py |
 | Python compilation | Existing isolated interpreter | All source compiles | PASS | python-compilation.log / command.json |
@@ -48,7 +48,7 @@ On another machine install the reviewed requirements-test.txt into a fresh isola
 
 ## Final local completion evidence
 
-Final completed local suites: **368 passing tests =211 backend +115 Web +42 deployment/fixture**. No tests skipped in these recorded runs. Lint, TypeScript, standalone build, pip check, Python compilation and diff whitespace checks passed. The Python environment was reused from the earlier isolated verification; it is not described as a fresh install.
+Final completed local suites: **370 passing tests =211 backend +115 Web +44 deployment/fixture**. No tests skipped in these recorded runs. Lint, TypeScript, standalone build, pip check, Python compilation and diff whitespace checks passed. The Python environment was reused from the earlier isolated verification; it is not described as a fresh install.
 
 - `pip-check`: exit0, 5.422s; `.cache/master-readiness/pip-check-command.json`.
 - `backend-tests`: exit0, 59.453s; `.cache/master-readiness/backend-tests-command.json`.
@@ -69,3 +69,7 @@ DNS read-only observation: apex A records3.33.130.190 and15.197.148.33; www CNAM
 - Public CA extraction correction uses the exact public file inside the container mount namespace. The documented [Caddy data path](https://caddyserver.com/docs/conventions) is retained. No private CA key is exported, TLS verification remains enabled and host trust stores are unchanged.
 
 A whitespace-only inherited report EOF issue was detected during staged review and corrected in6c9e98b; no substantive inherited work was discarded. Current git diff --check passes.
+
+- [Run43233624597](https://github.com/techashfaq/landvilla/actions/runs/43233624597), commit `528e1c561e46df9bcdb2b66e29e379d172ae5288`: public CA extraction succeeded; first host HTTPS request failed. No TLS bypass was introduced.
+- [Run43234773167](https://github.com/techashfaq/landvilla/actions/runs/43234773167), commit `956597b616b54f9baf3d9ff4b56452d97455dcae`: precise failure was curl exit7, connection refused to localhost8443. The native Caddy TLS regression independently passes chain verification, strict SNI and hidden probes. Docker did not publish the internal-only bridge port effectively. A separate Caddy-only ingress bridge is now prepared; application dependencies remain internal and production Compose is unchanged. No runtime success is inferred before rerun.
+- Runner evidence records Engine28.0.4/Compose2.38.2, Linux amd64, API195,947,445 bytes and Web270,032,630 bytes for956597b. These measurements do not certify target EC2 capacity/version compatibility. Whole-image OS scanning remains NOT TESTED.

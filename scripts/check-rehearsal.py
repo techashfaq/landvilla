@@ -31,11 +31,19 @@ def validate(model):
     services=model.get("services",{})
     require(set(services)=={"api","web","caddy","mongo","storage","prepare","mail"},"exact rehearsal services")
     network=model.get("networks",{}).get("rehearsal",{})
-    require(set(model.get("networks",{}))=={"rehearsal"} and network.get("internal") is True and
+    require(set(model.get("networks",{}))=={"rehearsal","ingress"} and network.get("internal") is True and
             network.get("driver")=="bridge" and not network.get("enable_ipv6") and not network.get("external"),"internal owned IPv4 rehearsal network")
     allocation=network["ipam"]["config"]
     require(len(allocation)==1,"one allocation")
     subnet=ipaddress.IPv4Network(allocation[0]["subnet"],strict=True)
+    ingress=model["networks"]["ingress"]
+    require(network.get("name")=="landvilla-rehearsal_rehearsal" and ingress.get("name")=="landvilla-rehearsal_ingress","unique owned rehearsal network names")
+    require(ingress.get("driver")=="bridge" and not any(ingress.get(k) for k in ("internal","external","enable_ipv6","driver_opts")),"ordinary owned IPv4 ingress bridge")
+    ingress_allocation=ingress["ipam"]["config"]
+    require(len(ingress_allocation)==1,"one ingress allocation")
+    ingress_subnet=ipaddress.IPv4Network(ingress_allocation[0]["subnet"],strict=True)
+    require(not subnet.overlaps(ingress_subnet) and ingress_subnet.num_addresses>=16 and
+            any(ingress_subnet.subnet_of(ipaddress.IPv4Network(n)) for n in ("10.0.0.0/8","172.16.0.0/12","192.168.0.0/16")),"separate private ingress subnet")
     pool=ipaddress.IPv4Network(allocation[0]["ip_range"],strict=True)
     peer=ipaddress.IPv4Address(services["web"]["networks"]["rehearsal"]["ipv4_address"])
     require(any(subnet.subnet_of(ipaddress.IPv4Network(n)) for n in ("10.0.0.0/8","172.16.0.0/12","192.168.0.0/16")),"private subnet")
@@ -50,7 +58,7 @@ def validate(model):
             "storage":["python","/rehearsal/storage_mock.py"],"prepare":["python","/rehearsal/prepare.py"],
             "caddy":["caddy","run","--config","/etc/caddy/Caddyfile","--adapter","caddyfile"]}
         require(service.get("command")==expected_commands.get(name),"reviewed rehearsal command")
-        require(set(service["networks"])=={"rehearsal"},"no alternate network")
+        require(set(service["networks"])==({"rehearsal","ingress"} if name=="caddy" else {"rehearsal"}),"only Caddy joins ingress network")
         require(float(service.get("cpus",0))>0 and int(service.get("mem_limit",0))>0 and int(service.get("pids_limit",0))>0,"resource bounds")
         image=service.get("image","")
         require(bool(re.fullmatch(r"(?:[^\s]+@)?sha256:[a-f0-9]{64}",image)),"immutable rehearsal image digest or local content ID")
@@ -94,6 +102,7 @@ def host_collisions(subnet):
     ids=run(["docker","network","ls","-q"]).split()
     if ids:
         for network in json.loads(run(["docker","network","inspect",*ids])):
+            require(network.get("Name") not in ("landvilla-rehearsal_rehearsal","landvilla-rehearsal_ingress"),"existing rehearsal network requires explicit reuse review")
             # Docker's built-in host/none networks legitimately return Config: null.
             for config in network.get("IPAM",{}).get("Config") or []:
                 existing=ipaddress.ip_network(config.get("Subnet","0.0.0.0/32"))
@@ -104,6 +113,8 @@ def host_collisions(subnet):
         existing=ipaddress.ip_network(destination,strict=False)
         require(not subnet.overlaps(existing),"host route collision")
     require(not run(["docker","ps","-aq","--filter","label=com.docker.compose.project=landvilla-rehearsal"]).strip(),"existing rehearsal project requires explicit reuse review")
+    volumes=set(run(["docker","volume","ls","--format","{{.Name}}"]).splitlines())
+    require(not volumes.intersection({"landvilla-rehearsal_mongo_data","landvilla-rehearsal_mongo_config","landvilla-rehearsal_mail_tls"}),"existing rehearsal volume requires explicit reuse review")
     # Does not prove VPC/VPN/peering remote route absence; approval still required.
 
 
@@ -114,8 +125,11 @@ def main():
     p.add_argument("--host-check",action="store_true")
     args=p.parse_args()
     try:
-        subnet=validate(resolve(Path(args.env_file).resolve(),args.compose_binary))
-        if args.host_check: host_collisions(subnet)
+        model=resolve(Path(args.env_file).resolve(),args.compose_binary)
+        subnet=validate(model)
+        if args.host_check:
+            host_collisions(subnet)
+            host_collisions(ipaddress.IPv4Network(model["networks"]["ingress"]["ipam"]["config"][0]["subnet"]))
     except Exception:
         print("BLOCKED rehearsal configuration or collision check; values withheld")
         return 1

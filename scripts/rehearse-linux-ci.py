@@ -59,15 +59,18 @@ def main():
     checker.validate(model)
     compose=["docker","compose","--env-file",str(env_file),"-f","deploy/compose.rehearsal.yml"]
     started=False
+    completed=False
+    phase="startup"
     checks=[]
     try:
         started=True
         run(compose+["up","-d","--wait","--wait-timeout","180"],capture=False)
         checks.append("startup and liveness")
+        phase="readiness and proxy source"
         run(compose+["exec","-T","web","node","-e","fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))"])
         checks.append("API Mongo topology/storage mock readiness through Web")
         connection=subprocess.Popen(compose+["exec","-T","web","node","-e",
-            "fetch('http://api:8000/health').then(r=>r.text()).then(()=>setTimeout(()=>{},15000))"],
+            "const s=require('node:net').createConnection({host:'api',port:8000}); s.on('error',()=>process.exit(1)); setTimeout(()=>s.end(),15000)"],
             cwd=ROOT,env=ENV,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         try:
             time.sleep(1)
@@ -81,6 +84,7 @@ def main():
         negative="import urllib.request,urllib.error; r=urllib.request.Request('http://api:8000/api/',headers={'X-Forwarded-Proto':'https','X-Forwarded-For':'"+settings["REHEARSAL_WEB_IP"]+"'});\ntry: urllib.request.urlopen(r,timeout=3); raise SystemExit(1)\nexcept urllib.error.HTTPError as e: raise SystemExit(0 if e.code==400 else 1)"
         run(compose+["exec","-T","storage","python","-c",negative])
         checks.append("untrusted fixture peer cannot forge HTTPS proxy trust")
+        phase="runtime hardening"
         for name in ("api","web","caddy","mongo","storage","mail"):
             container=run(compose+["ps","-q",name])
             config=json.loads(run(["docker","inspect","--format","{{json .HostConfig}}",container]))
@@ -90,13 +94,15 @@ def main():
             if user in ("","0","root","0:0"): raise RuntimeError("Root runtime")
             if name!="caddy" and config.get("PortBindings"): raise RuntimeError("Application published")
         checks.append("non-root/read-only/dropped capabilities/resource/port declarations effective")
+        phase="TLS and synthetic browser flow"
         caddy=run(compose+["ps","-q","caddy"])
         run(["docker","cp",caddy+":/data/caddy/pki/authorities/local/root.crt",str(WORK/"rehearsal-ca.crt")])
         # Trust only this disposable CA for this command; no host trust-store changes.
-        run(["curl","--fail","--silent","--show-error","--cacert",str(WORK/"rehearsal-ca.crt"),"https://localhost:8443/"])
+        run(["curl","--fail","--silent","--show-error","--retry","5","--retry-delay","3","--cacert",str(WORK/"rehearsal-ca.crt"),"https://localhost:8443/"])
         checks.append("loopback real TLS with explicit disposable CA")
         run([sys.executable,"scripts/smoke-rehearsal.py","--env-file",str(env_file),"--ca",str(WORK/"rehearsal-ca.crt")],capture=False)
         checks.append("browser OTP/CSRF/logout and private media synthetic acceptance")
+        phase="dependency failure and restart recovery"
         run(compose+["stop","storage"])
         run(compose+["exec","-T","web","node","-e","fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.status===503?0:1))"])
         run(compose+["start","storage"])
@@ -109,10 +115,25 @@ def main():
         checks.append("storage failure/recovery")
         run(compose+["restart","api","web"])
         run(compose+["up","-d","--wait","--wait-timeout","120"],capture=False)
+        run(compose+["exec","-T","web","node","-e","fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))"])
+        run(["curl","--fail","--silent","--show-error","--retry","5","--retry-delay","3","--cacert",str(WORK/"rehearsal-ca.crt"),"https://localhost:8443/api/meta"])
         checks.append("same-artifact restart recovery; not previous-release rollback")
+        completed=True
+    except Exception:
+        print("FAIL phase: "+phase,flush=True)
+        # Fixed metadata only. Never broad docker inspect, environment, health
+        # output, request bodies, OTP messages or application logs.
+        for name in ("mongo","storage","prepare","mail","api","web","caddy"):
+            try:
+                container=run(compose+["ps","-aq",name])
+                if container:
+                    state=run(["docker","inspect","--format",'{{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}{{if .State.Health}} health={{.State.Health.Status}}{{end}}',container])
+                    print(name+": "+state,flush=True)
+            except Exception: print(name+": diagnostic unavailable",flush=True)
+        raise
     finally:
         if started: run(compose+["down","--volumes","--remove-orphans"],capture=False)
-        (WORK/"result.json").write_text(json.dumps({"commit":commit,"checks_passed":checks,"images":settings,
+        (WORK/"result.json").write_text(json.dumps({"commit":commit,"status":"PASS" if completed else "FAIL","checks_passed":checks,"images":settings,
             "production":False,"directional_isolation":"NOT TESTED / not implemented","previous_release_rollback":"BLOCKED no known-good artifact"},indent=2)+"\n")
     print("PASS disposable Linux runtime campaign; production/EC2 acceptance remains separate")
 

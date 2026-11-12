@@ -61,12 +61,17 @@ async def main():
         await m002_identity_indexes(client.landvilla_rehearsal)
         await client.landvilla_rehearsal.schema_migrations.update_one(
             {"version":"002_identity_indexes"}, {"$setOnInsert":{"version":"002_identity_indexes","applied_at":now}}, upsert=True)
-        print("PASS disposable replica and identity indexes; no application seeds")
+        # Minimal synthetic reference fixture, only on the exact guarded disposable DB.
+        # No customer listings, accounts, production seed runner or production data.
+        await client.landvilla_rehearsal.cities.update_one({"slug":"ujjain"}, {"$setOnInsert":{
+            "id":"city_rehearsal","slug":"ujjain","name_en":"Rehearsal fixture",
+            "name_hi":"Rehearsal fixture","is_active":True,"created_at":now}}, upsert=True)
+        print("PASS disposable replica, identity indexes and synthetic city fixture")
     finally: client.close()
 
 
 if __name__ == "__main__":
     try: asyncio.run(main())
-    except Exception:
-        print("FAIL disposable preparation; diagnostics withheld",file=sys.stderr)
+    except Exception as error:
+        print("FAIL disposable preparation: "+type(error).__name__+"; details withheld",file=sys.stderr)
         raise SystemExit(1)

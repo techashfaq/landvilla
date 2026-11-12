@@ -45,7 +45,11 @@ def validate(model):
         require(service.get("read_only") is True and service.get("restart")=="no" and service.get("user") in ("10001:10001","1000:1000","999:999"),"disposable nonroot runtime")
         require(service.get("cap_drop")==["ALL"] and not service.get("cap_add") and
                 "no-new-privileges:true" in service.get("security_opt",[]),"dropped privileges")
-        require(not any(service.get(k) for k in ("privileged","network_mode","devices","env_file","secrets","configs","build","extra_hosts","external_links","container_name")),"no external runtime inputs")
+        require(not any(service.get(k) for k in ("privileged","network_mode","devices","env_file","secrets","configs","build","extra_hosts","external_links","container_name","entrypoint","volumes_from","use_api_socket","pid")),"no external runtime inputs")
+        expected_commands={"mongo":["mongod","--replSet","lv_rehearsal","--bind_ip_all"],
+            "storage":["python","/rehearsal/storage_mock.py"],"prepare":["python","/rehearsal/prepare.py"],
+            "caddy":["caddy","run","--config","/etc/caddy/Caddyfile","--adapter","caddyfile"]}
+        require(service.get("command")==expected_commands.get(name),"reviewed rehearsal command")
         require(set(service["networks"])=={"rehearsal"},"no alternate network")
         require(float(service.get("cpus",0))>0 and int(service.get("mem_limit",0))>0 and int(service.get("pids_limit",0))>0,"resource bounds")
         image=service.get("image","")
@@ -75,6 +79,8 @@ def validate(model):
     web=services["web"]["environment"]
     require(web.get("WEB_ORIGIN")=="https://localhost:8443" and web.get("BACKEND_ORIGIN")=="http://api:8000" and web.get("BACKEND_TRANSPORT")=="private-http","fixed rehearsal transport")
     require(web.get("LANDVILLA_INGRESS_TOKEN")=="d"*64 and web.get("WEB_API_IP_KEY")=="e"*64 and api.get("WEB_API_IP_KEY")=="e"*64 and services["caddy"]["environment"].get("LANDVILLA_INGRESS_TOKEN")=="d"*64,"synthetic authenticated ingress")
+    require(web.get("CLIENT_IP_MODE")=="signed-v1","authenticated rehearsal identity")
+    require(set(services["mail"].get("environment",{}))=={"MP_DATABASE","MP_MAX_MESSAGES","MP_DISABLE_VERSION_CHECK","MP_SMTP_DISABLE_RDNS","MP_QUIET","MP_SMTP_AUTH","MP_SMTP_TLS_CERT","MP_SMTP_TLS_KEY","MP_SMTP_REQUIRE_STARTTLS"},"no mail relay or alternate provider")
     for name in ("web","caddy","storage","mail","mongo"):
         require(not(set(services[name].get("environment",{})) & {"MONGO_URL","S3_ACCESS_KEY_ID","S3_SECRET_ACCESS_KEY","OTP_HMAC_SECRET"}),"API fixture credential scoping")
     return subnet
@@ -88,7 +94,8 @@ def host_collisions(subnet):
     ids=run(["docker","network","ls","-q"]).split()
     if ids:
         for network in json.loads(run(["docker","network","inspect",*ids])):
-            for config in network.get("IPAM",{}).get("Config",[]):
+            # Docker's built-in host/none networks legitimately return Config: null.
+            for config in network.get("IPAM",{}).get("Config") or []:
                 existing=ipaddress.ip_network(config.get("Subnet","0.0.0.0/32"))
                 require(existing.version!=4 or not subnet.overlaps(existing),"existing Docker subnet collision")
     for route in json.loads(run(["ip","-j","-4","route","show","table","all"])):

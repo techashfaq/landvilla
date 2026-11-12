@@ -1,16 +1,29 @@
 import copy
 import importlib.util
+import ipaddress
 import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location("rehearsal_checker",ROOT/"scripts/check-rehearsal.py")
 checker=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(checker)
+
+
+class HostInventory(unittest.TestCase):
+    def test_null_builtin_network_ipam_and_real_collision(self):
+        networks=[{"IPAM":{"Config":None}},{"IPAM":{"Config":[{"Subnet":"172.17.0.0/16"}]}}]
+        results=["host bridge",json.dumps(networks),'[{"dst":"default"},{"dst":"10.1.0.0/16"}]',""]
+        with patch.object(checker.subprocess,"run",side_effect=[subprocess.CompletedProcess([],0,s,"") for s in results]):
+            checker.host_collisions(ipaddress.IPv4Network("172.20.240.0/24"))
+        with patch.object(checker.subprocess,"run",side_effect=[subprocess.CompletedProcess([],0,s,"") for s in results[:2]]):
+            with self.assertRaisesRegex(ValueError,"collision"):
+                checker.host_collisions(ipaddress.IPv4Network("172.17.240.0/24"))
 
 
 class RehearsalConfiguration(unittest.TestCase):
@@ -58,6 +71,11 @@ class RehearsalConfiguration(unittest.TestCase):
     def test_invalid_network_identity(self):
         self.reject(lambda m:m["services"]["web"]["networks"]["rehearsal"].update(ipv4_address="172.30.249.140"))
         self.reject(lambda m:m["services"]["api"]["environment"].update(FORWARDED_ALLOW_IPS="*"))
+
+    def test_runtime_command_and_mail_relay_cannot_override_fixture(self):
+        self.reject(lambda m:m["services"]["api"].update(command=["unreviewed"]))
+        self.reject(lambda m:m["services"]["web"].update(entrypoint=["unreviewed"]))
+        self.reject(lambda m:m["services"]["mail"]["environment"].update(MP_SMTP_RELAY_ALL="true"))
 
     def test_caddy_internal_tls_no_acme(self):
         env={k:v for k,v in os.environ.items() if k.upper() in {"PATH","SYSTEMROOT","WINDIR","COMSPEC","PATHEXT"}}

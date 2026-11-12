@@ -35,6 +35,9 @@ def main():
         for route in ("/","/properties","/buy","/rent","/contact","/faq","/robots.txt","/sitemap.xml"):
             expected(client.get(route),200,"public route")
         for route in ("/health","/ready"): expected(client.get(route),404,"hidden probes")
+        meta=expected(client.get("/api/meta"),200,"public reference data").json()
+        if meta.get("city",{}).get("id")!="city_rehearsal": raise RuntimeError("Synthetic city fixture missing")
+        expected(client.get("/api/properties",params={"purpose":"buy","sort":"newest","page":1}),200,"public discovery")
         bootstrap=expected(client.get("/api/auth/browser/bootstrap",headers={"Origin":origin}),200,"bootstrap")
         cookie=bootstrap.headers.get("set-cookie","").lower()
         if not all(x in cookie for x in ("__host-lv_session=","secure","httponly","samesite=lax")): raise RuntimeError("cookie attributes")

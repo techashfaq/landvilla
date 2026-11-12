@@ -124,7 +124,7 @@ def main():
         runtime_versions["node"]=json.loads(run(compose+["exec","-T","web","node","-p","JSON.stringify(process.versions)"]))
         runtime_versions["python"]=run(compose+["exec","-T","api","python","-c","import platform; print(platform.python_version())"])
         runtime_versions["mongo_yaml"]=run(compose+["exec","-T","mongo","mongosh","--quiet","--nodb","--eval",
-            "const yaml=require('/opt/js-yaml/js-yaml.js'); if(yaml.load('fixture: true').fixture!==true) quit(1); print(require('/opt/js-yaml/package.json').version)"])
+            "const fs=require('fs'); if(fs.realpathSync('/js-yaml.js')!=='/opt/js-yaml/dist/js-yaml.js') quit(1); const yaml=require('/js-yaml.js'); if(yaml.load('fixture: true').fixture!==true) quit(1); for(const p of ['/usr/local/bin/gosu','/usr/bin/bsondump','/usr/bin/mongodump','/usr/bin/mongoexport','/usr/bin/mongofiles','/usr/bin/mongoimport','/usr/bin/mongorestore','/usr/bin/mongostat','/usr/bin/mongotop']){if(fs.existsSync(p)) quit(1)} print(require('/opt/js-yaml/package.json').version)"])
         if runtime_versions["mongo_yaml"]!="3.15.2": raise RuntimeError("Patched YAML helper required")
         checks.append("supported Caddy version, unused Web package managers absent, API pip check")
         phase="TLS and synthetic browser flow"

@@ -23,3 +23,11 @@ No production deployment is authorized by a passing local suite. Current evidenc
 | Release and rollback artifacts | Engineering/operator: record exact clean commit, scanned immutable application artifacts, previous compatible manifest, compatible DB/index/media state. | Reviewed manifest and tested rollback; if no known-good release exists, failed first launch stays stopped. |
 
 No DNS, security-group, firewall, Atlas allow-list, billing or public exposure change is implied by these steps. Any such change needs a concrete separate approval and rollback plan.
+
+## Image remediation authorization and remaining gate — 13 November 2026
+
+The image-remediation task now authorizes supported Dockerfile/base/fixture updates and disposable CI; the older table's request for artifact-remediation authorization is superseded. Production Compose/Caddy deployment settings, EC2 access, provider changes and deployment remain prohibited. No production image publication is performed.
+
+Supported candidate changes are prepared and local application verification has passed. Full candidate Linux rehearsal and unsuppressed image scan must identify the exact commit/image IDs before any artifact acceptance. Caddy2.11.9 still embeds go-jose/v3 3.0.5 (no patched v3 line), x/net0.60.0 and compress1.20.1; several Debian stable package groups lack supported fixes. See PRODUCTION_IMAGE_SECURITY_REVIEW.md for exact advisories and vendor evidence. No scanner suppression or implicit risk acceptance resolves this gate.
+
+The Caddy wrapper is built only for disposable verification. Production still selects the existing official image through its unchanged external setting; switching it requires a later separately reviewed deployment-setting action. All environment, host-capacity, provider, network, backup/restore, DNS/TLS, rollback and public acceptance gates remain open.

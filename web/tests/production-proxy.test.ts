@@ -106,7 +106,7 @@ test("all server backend callers apply generated transport headers", async () =>
 
 test("Docker uses standalone Node 24, non-root listener, secret exclusions and liveness", async () => {
   const docker = await readFile(new URL("../Dockerfile", import.meta.url), "utf8");
-  assert.match(docker, /FROM node:24-bookworm-slim@sha256:[a-f0-9]{64} AS runtime/);
+  assert.match(docker, /FROM node:24-trixie-slim@sha256:[a-f0-9]{64} AS runtime/);
   assert.match(docker, /HOSTNAME=0\.0\.0\.0 PORT=3000/);
   assert.match(docker, /USER node/); assert.match(docker, /\/app\/\.next\/standalone/);
   assert.match(docker, /\/app\/\.next\/static/); assert.match(docker, /\/app\/public/);

@@ -153,3 +153,11 @@ Additional reviewed paths from runtime verification:
 - `docs/PRODUCTION_IMAGE_SECURITY_REVIEW.md`
 
 Runtime testing identified and corrected a real logout boundary defect: Starlette emits a quoted-empty deletion cookie, which the Web validator previously rejected with502. The validator now accepts that exact empty form only with Max-Age=0 and retains all security/duplicate-attribute checks. New tests preserve actual serialization. The rehearsal now has a Caddy-only ingress bridge, checked separately for collisions; its internal application bridge remains ordinary shared networking, not directional isolation. SMTP fixture CA reuse is idempotent across repeated setup; postrestart smoke repeats authentication and private media checks. Release artifact recording requires successful same-commit evidence and matching Linux image IDs/revision labels, not merely SHA-looking tags.
+
+## Image remediation campaign — 13 November 2026
+
+Started from clean dev at d5bf8093cf45e27d7faa5b932e43096c9f484dcf, matching origin/dev. Existing work was preserved. This campaign updates only image build inputs, disposable CI validation/evidence and reports. Production Compose/Caddy deployment settings and all external production resources remain unchanged.
+
+Supported candidate fixes: Node24 Trixie Slim; signed Debian Trixie zlib security packages for API/Web; removal of unused Web runtime npm/Yarn tooling; official Caddy2.11.9 with same-branch Alpine zlib update; rehearsal Mongo entrypoint YAML helper3.15.2 and Mailpit1.33.1. No application dependency pins or security boundaries changed. Candidate source/parent/architecture checks and complete Syft/Grype provenance are added. Caddy wrapper is a disposable CI candidate, not a production deployment setting change.
+
+Current local application tests:211 backend and117 Web passed, lint/typecheck/standalone production build and pip check passed. Additional deployment/scanner checks and exact Linux scan results are recorded in the verification matrix after execution. Supported upstream patches remain unavailable for Caddy Go modules and several Debian stable package findings; no acceptance waiver is authorized. **Image gate and production release remain BLOCKED pending unsuppressed candidate results and unresolved upstream fixes.**

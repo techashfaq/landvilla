@@ -78,33 +78,12 @@
     },
     {
       "repository": "library/node",
-      "tag": "24-bookworm-slim",
-      "digest": "sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54",
+      "tag": "24-trixie-slim",
+      "digest": "sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0",
       "platforms": [
         {
           "architecture": "amd64",
           "os": "linux"
-        },
-        {
-          "architecture": "unknown",
-          "os": "unknown"
-        },
-        {
-          "architecture": "arm64",
-          "os": "linux",
-          "variant": "v8"
-        },
-        {
-          "architecture": "unknown",
-          "os": "unknown"
-        },
-        {
-          "architecture": "ppc64le",
-          "os": "linux"
-        },
-        {
-          "architecture": "unknown",
-          "os": "unknown"
         }
       ]
     },
@@ -202,32 +181,12 @@
     },
     {
       "repository": "axllent/mailpit",
-      "tag": "v1.33.0",
-      "digest": "sha256:9b3a463be15354c0f0eba91697d80e3e0d8a5623ef0e627cacc836bc17fd5231",
+      "tag": "v1.33.1",
+      "digest": "sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce",
       "platforms": [
-        {
-          "architecture": "386",
-          "os": "linux"
-        },
         {
           "architecture": "amd64",
           "os": "linux"
-        },
-        {
-          "architecture": "arm64",
-          "os": "linux"
-        },
-        {
-          "architecture": "unknown",
-          "os": "unknown"
-        },
-        {
-          "architecture": "unknown",
-          "os": "unknown"
-        },
-        {
-          "architecture": "unknown",
-          "os": "unknown"
         }
       ]
     }

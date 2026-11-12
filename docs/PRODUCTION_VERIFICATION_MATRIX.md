@@ -78,3 +78,20 @@ A whitespace-only inherited report EOF issue was detected during staged review a
 - [Run43236173733](https://github.com/techashfaq/landvilla/actions/runs/43236173733), commit `c0035841b7cfb15978f900d1b5567c52280a783f`: loopback TLS, public paths, synthetic registration/CSRF/admin denial/private media reached logout, which returned502. Root cause reproduced locally: Starlette quoted-empty cookie deletion was rejected by the Web validator. Fixed with strict deletion-specific acceptance and two regression tests; no cookie/CSRF control removed.
 - [Run43245360600](https://github.com/techashfaq/landvilla/actions/runs/43245360600), commit `ad1acd44cf1a185ecaadcd852d80c3d37af2a9a0`: backend/Web job PASS; complete Linux runtime campaign PASS with10 recorded check groups, including postrestart login/media and cleanup. Separate image security scan FAIL with122High/4Critical package-advisory matches. Overall workflow FAIL is intentional and not waived. Scanner archive digest matched authoritative GitHub release asset metadata; no unpinned install action or production credentials were used.
 - Verified runtime image IDs: API `sha256:5ccac299e68192cc1de369736ca97982b0fea66ac74b7b039d5bb725ab5c4ab4`; Web `sha256:9c1ca56631d3a708c311dca35752101f6cd29fdb8c30b8737342c9a65af5425a`. Linux amd64 sizes195,947,445 and270,032,676 bytes. These are disposable local image IDs, not published release digests. No deployment SHA exists. Subsequent documentation-only commits trigger the same gates and require their own run identity; the final handover names that run explicitly.
+
+## Image remediation verification — 13 November 2026
+
+Starting source: d5bf8093cf45e27d7faa5b932e43096c9f484dcf, clean dev. The earlier122High/4Critical results above are historical baseline evidence, not candidate results.
+
+| Check | Environment | Result / evidence |
+|---|---|---|
+| Backend unit suite and pip check | Existing isolated Python3.12.10, no production configuration | PASS211 tests; pip check PASS |
+| Web suite, lint and TypeScript | Existing Node24, sanitized environment | PASS117 tests; lint and types PASS |
+| Standalone production build | Environment-free local source copy | PASS96.422 seconds; complete standalone assets |
+| Dependency advisory metadata | Public PyPI/npm registries | PASS dated observation36Python/55Web runtime names,0active entries,0yanked; excludes OS/embedded tooling |
+| Deployment/evidence tests | Native Compose5.7.1/Caddy2.11.9 and mock evidence | PASS52 tests (46 deployment/fixture +6 new scanner integrity); 380 total with backend/Web |
+| Python compilation | Existing isolated Python3.12.10 | PASS7.594 seconds |
+| Candidate Linux build/runtime/SBOM/Grype | Disposable GitHub runner only | NOT TESTED until exact run completes; no candidate clearance claimed |
+| Production Compose/Caddy settings | Git diff against starting commit | Unchanged |
+
+CI adds full SBOM and full Grype reports for all five runtime images, exact image IDs and layers, package locations/ranges/vendor fixes, source binding and evidence checksums. Artifact retention is90days. High/Critical gate remains unsuppressed, even for vendor-unfixed matches.

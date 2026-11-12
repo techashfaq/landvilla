@@ -17,13 +17,15 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--env-file",required=True)
     p.add_argument("--ca",required=True)
+    p.add_argument("--candidate-images",type=Path)
     p.add_argument("--existing-account",action="store_true",help="Login to the same synthetic account after restart")
     args=p.parse_args()
     spec=importlib.util.spec_from_file_location("checker",ROOT/"scripts/check-rehearsal.py")
     checker=importlib.util.module_from_spec(spec)
     spec.loader.exec_module(checker)
     model=checker.resolve(Path(args.env_file).resolve())
-    checker.validate(model)
+    checker.validate(model,json.loads(args.candidate_images.read_text()) if args.candidate_images else None,
+                     checker.source_revision() if args.candidate_images else None)
     compose=["docker","compose","--env-file",str(Path(args.env_file).resolve()),"-f",str(ROOT/"deploy/compose.rehearsal.yml")]
     env={k:v for k,v in os.environ.items() if k in ("PATH","HOME","LANG")}
     env["COMPOSE_DISABLE_ENV_FILE"]="1"

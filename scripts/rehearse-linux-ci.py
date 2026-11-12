@@ -59,19 +59,25 @@ def main():
     versions={"docker_engine":run(["docker","version","--format","{{.Server.Version}}"]),
               "compose":run(["docker","compose","version","--short"])}
     artifacts={}
-    for name in ("api","web"):
+    contexts={"api":"backend","web":"web","caddy":"deploy/images/caddy","mongo":"deploy/images/mongo"}
+    parents={"api":"library/python","web":"library/node","caddy":"library/caddy","mongo":"library/mongo"}
+    for name,context in contexts.items():
         tag=f"landvilla-{name}:{commit}"
-        run(["docker","build","--label","org.opencontainers.image.revision="+commit,"-t",tag,"backend" if name=="api" else "web"],capture=False)
+        run(["docker","build","--label","org.opencontainers.image.revision="+commit,
+             "--label","org.landvilla.base-image="+images[parents[name]],"-t",tag,context],capture=False)
         settings["REHEARSAL_"+name.upper()+"_IMAGE"]=run(["docker","image","inspect","--format","{{.Id}}",tag])
         metadata=json.loads(run(["docker","image","inspect","--format","{{json .}}",tag]))
         artifacts[name]={key:metadata.get(key) for key in ("Id","Size","Os","Architecture","Created")}
         artifacts[name]["revision"]=(metadata.get("Config",{}).get("Labels") or {}).get("org.opencontainers.image.revision")
-        if artifacts[name]["Os"]!="linux" or artifacts[name]["revision"]!=commit:
+        artifacts[name]["base"]=(metadata.get("Config",{}).get("Labels") or {}).get("org.landvilla.base-image")
+        if artifacts[name]["Os"]!="linux" or artifacts[name]["Architecture"]!="amd64" or artifacts[name]["revision"]!=commit:
             raise RuntimeError("Linux source artifact mismatch")
+    candidate_file=WORK/"candidate-images.json"
+    candidate_file.write_text(json.dumps(artifacts,indent=2)+"\n")
     env_file=WORK/"rehearsal.env"
     env_file.write_text("\n".join(k+"="+v for k,v in settings.items())+"\n")
     model=checker.resolve(env_file)
-    checker.validate(model)
+    checker.validate(model,artifacts,commit)
     compose=["docker","compose","--env-file",str(env_file),"-f","deploy/compose.rehearsal.yml"]
     started=False
     completed=False
@@ -109,6 +115,12 @@ def main():
             if user in ("","0","root","0:0"): raise RuntimeError("Root runtime")
             if name!="caddy" and config.get("PortBindings"): raise RuntimeError("Application published")
         checks.append("non-root/read-only/dropped capabilities/resource/port declarations effective")
+        if not run(compose+["exec","-T","caddy","caddy","version"]).startswith("v2.11.9 "):
+            raise RuntimeError("Supported Caddy binary changed")
+        run(compose+["exec","-T","web","node","-e",
+            "const fs=require('fs'); for(const p of ['/usr/local/lib/node_modules/npm','/usr/local/bin/npm','/usr/local/bin/npx','/usr/local/bin/yarn']){if(fs.existsSync(p))process.exit(1)}"])
+        run(compose+["exec","-T","api","python","-m","pip","check"])
+        checks.append("supported Caddy version, unused Web package managers absent, API pip check")
         phase="TLS and synthetic browser flow"
         # Read the public certificate in the container's mount namespace. docker cp
         # failed for this tmpfs-backed fixture; never copy its CA private key.
@@ -121,7 +133,8 @@ def main():
         # Trust only this disposable CA for this command; no host trust-store changes.
         run(["curl","--fail","--silent","--show-error","--retry","5","--retry-delay","3","--cacert",str(WORK/"rehearsal-ca.crt"),"https://localhost:8443/"])
         checks.append("loopback real TLS with explicit disposable CA")
-        run([sys.executable,"scripts/smoke-rehearsal.py","--env-file",str(env_file),"--ca",str(WORK/"rehearsal-ca.crt")],capture=False)
+        smoke=[sys.executable,"scripts/smoke-rehearsal.py","--env-file",str(env_file),"--ca",str(WORK/"rehearsal-ca.crt"),"--candidate-images",str(candidate_file)]
+        run(smoke,capture=False)
         checks.append("browser OTP/CSRF/logout and private media synthetic acceptance")
         phase="dependency failure and restart recovery"
         run(compose+["stop","storage"])
@@ -138,7 +151,7 @@ def main():
         run(compose+["up","-d","--wait","--wait-timeout","120"],capture=False)
         run(compose+["exec","-T","web","node","-e","fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))"])
         run(["curl","--fail","--silent","--show-error","--retry","5","--retry-delay","3","--cacert",str(WORK/"rehearsal-ca.crt"),"https://localhost:8443/api/meta"])
-        run([sys.executable,"scripts/smoke-rehearsal.py","--env-file",str(env_file),"--ca",str(WORK/"rehearsal-ca.crt"),"--existing-account"],capture=False)
+        run(smoke+["--existing-account"],capture=False)
         checks.append("same-artifact restart recovery; not previous-release rollback")
         completed=True
     except Exception:

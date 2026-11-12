@@ -50,6 +50,24 @@ class RehearsalConfiguration(unittest.TestCase):
 
     def test_rehearsal_model(self): checker.validate(self.model)
 
+    def test_candidate_fixture_requires_exact_linux_parent_and_source_evidence(self):
+        model=copy.deepcopy(self.model)
+        manifest=json.loads((ROOT/"deploy/reviewed-base-images.json").read_text())
+        records={}
+        for name in ("caddy","mongo"):
+            parent=next(r for r in manifest["images"] if r["repository"]=="library/"+name)
+            identity="sha256:"+("b" if name=="caddy" else "c")*64
+            records[name]={"Id":identity,"Os":"linux","Architecture":"amd64","revision":"d"*40,
+                "base":parent["repository"]+":"+parent["tag"]+"@"+parent["digest"]}
+            model["services"][name]["image"]=identity
+        checker.validate(model,records,"d"*40)
+        with self.assertRaises(ValueError): checker.validate(model)
+        with self.assertRaises(ValueError): checker.validate(model,records)
+        for field,value in (("base","caddy:latest"),("Os","windows"),("Architecture","arm64"),("revision","a"*40),("Id","sha256:"+"f"*64)):
+            tampered=copy.deepcopy(records)
+            tampered["caddy"][field]=value
+            with self.subTest(field=field),self.assertRaises(ValueError): checker.validate(model,tampered,"d"*40)
+
     def test_no_publication_except_loopback_tls(self):
         for name in ("api","web","mongo","mail","storage"):
             self.reject(lambda m:m["services"][name].update(ports=[{"target":8000,"published":"8000"}]))

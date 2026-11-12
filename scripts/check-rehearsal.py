@@ -26,7 +26,16 @@ def resolve(env_file,binary=None):
     return json.loads(result.stdout)
 
 
-def validate(model):
+def source_revision():
+    result=subprocess.run(["git","rev-parse","HEAD"],cwd=ROOT,capture_output=True,text=True,timeout=10,check=True)
+    revision=result.stdout.strip()
+    require(bool(re.fullmatch(r"[a-f0-9]{40}",revision)),"exact source revision")
+    return revision
+
+
+def validate(model, candidate_images=None, expected_commit=None):
+    if candidate_images:
+        require(bool(re.fullmatch(r"[a-f0-9]{40}",expected_commit or "")),"candidate source commit required")
     require(model.get("name")=="landvilla-rehearsal","unique rehearsal project")
     services=model.get("services",{})
     require(set(services)=={"api","web","caddy","mongo","storage","prepare","mail"},"exact rehearsal services")
@@ -62,8 +71,22 @@ def validate(model):
         require(float(service.get("cpus",0))>0 and int(service.get("mem_limit",0))>0 and int(service.get("pids_limit",0))>0,"resource bounds")
         image=service.get("image","")
         require(bool(re.fullmatch(r"(?:[^\s]+@)?sha256:[a-f0-9]{64}",image)),"immutable rehearsal image digest or local content ID")
-        if name=="mongo": require(bool(re.match(r"(?:(?:docker.io/)?library/)?mongo[:@]",image)),"official Mongo image")
-        if name=="caddy": require(bool(re.match(r"(?:(?:docker.io/)?library/)?caddy:2\.11\.9-alpine@",image)),"reviewed Caddy version")
+        if name in ("mongo","caddy"):
+            # Locally built security candidates must be bound to an explicit
+            # build record, exact source revision and reviewed official parent.
+            # An arbitrary local ID alone never bypasses the official-image rule.
+            candidate=(candidate_images or {}).get(name,{})
+            if candidate and image==candidate.get("Id"):
+                manifest=json.loads((ROOT/"deploy/reviewed-base-images.json").read_text())
+                parent=next(r for r in manifest["images"] if r["repository"]=="library/"+name)
+                expected="library/"+name+":"+parent["tag"]+"@"+parent["digest"]
+                require(candidate.get("base")==expected and candidate.get("Os")=="linux" and
+                        candidate.get("Architecture")=="amd64" and
+                        candidate.get("revision")==expected_commit and
+                        bool(re.fullmatch(r"sha256:[a-f0-9]{64}",image)),"reviewed candidate provenance")
+            else:
+                pattern=r"(?:(?:docker.io/)?library/)?mongo[:@]" if name=="mongo" else r"(?:(?:docker.io/)?library/)?caddy:2\.11\.9-alpine@"
+                require(bool(re.match(pattern,image)),"reviewed official fixture image or bound candidate")
         if name=="mail": require(bool(re.match(r"(?:docker.io/)?axllent/mailpit[:@]",image)),"official Mailpit image")
         if name!="caddy": require(not service.get("ports"),"no application publication")
         for mount in service.get("volumes",[]):
@@ -122,11 +145,13 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--env-file",required=True)
     p.add_argument("--compose-binary")
+    p.add_argument("--candidate-images",type=Path,help="Exact disposable CI build records for derived fixtures")
     p.add_argument("--host-check",action="store_true")
     args=p.parse_args()
     try:
         model=resolve(Path(args.env_file).resolve(),args.compose_binary)
-        subnet=validate(model)
+        subnet=validate(model,json.loads(args.candidate_images.read_text()) if args.candidate_images else None,
+                        source_revision() if args.candidate_images else None)
         if args.host_check:
             host_collisions(subnet)
             host_collisions(ipaddress.IPv4Network(model["networks"]["ingress"]["ipam"]["config"][0]["subnet"]))

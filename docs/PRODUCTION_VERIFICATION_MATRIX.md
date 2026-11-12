@@ -1,6 +1,6 @@
 # Verification matrix — master execution
 
-Date:12 November2026. PASS means executed within the stated scope; FAIL means executed unsuccessfully; BLOCKED means unavailable access/configuration/approval; NOT TESTED means not executed. Local evidence directory: `.cache/master-readiness/`. Each verifier command writes its exact arguments, cwd, exit code, elapsed time and log there. No live backend test suite targeting real services was run.
+Historical master campaign:12 November2026. Latest image-remediation evidence is in the13November section below. PASS means executed within the stated scope; FAIL means executed unsuccessfully; BLOCKED means unavailable access/configuration/approval; NOT TESTED means not executed. Local evidence directory: `.cache/master-readiness/`. Each verifier command writes its exact arguments, cwd, exit code, elapsed time and log there. No live backend test suite targeting real services was run.
 
 | Check / command | Environment | Expected | Actual/status | Evidence |
 |---|---|---|---|---|
@@ -79,7 +79,7 @@ A whitespace-only inherited report EOF issue was detected during staged review a
 - [Run43245360600](https://github.com/techashfaq/landvilla/actions/runs/43245360600), commit `ad1acd44cf1a185ecaadcd852d80c3d37af2a9a0`: backend/Web job PASS; complete Linux runtime campaign PASS with10 recorded check groups, including postrestart login/media and cleanup. Separate image security scan FAIL with122High/4Critical package-advisory matches. Overall workflow FAIL is intentional and not waived. Scanner archive digest matched authoritative GitHub release asset metadata; no unpinned install action or production credentials were used.
 - Verified runtime image IDs: API `sha256:5ccac299e68192cc1de369736ca97982b0fea66ac74b7b039d5bb725ab5c4ab4`; Web `sha256:9c1ca56631d3a708c311dca35752101f6cd29fdb8c30b8737342c9a65af5425a`. Linux amd64 sizes195,947,445 and270,032,676 bytes. These are disposable local image IDs, not published release digests. No deployment SHA exists. Subsequent documentation-only commits trigger the same gates and require their own run identity; the final handover names that run explicitly.
 
-## Image remediation verification � 13 November 2026
+## Image remediation verification — 13 November 2026
 
 Starting source: d5bf8093cf45e27d7faa5b932e43096c9f484dcf, clean dev. The earlier122High/4Critical results above are historical baseline evidence, not candidate results.
 
@@ -90,8 +90,14 @@ Starting source: d5bf8093cf45e27d7faa5b932e43096c9f484dcf, clean dev. The earlie
 | Standalone production build | Environment-free local source copy | PASS96.422 seconds; complete standalone assets |
 | Dependency advisory metadata | Public PyPI/npm registries | PASS dated observation36Python/55Web runtime names,0active entries,0yanked; excludes OS/embedded tooling |
 | Deployment/evidence tests | Native Compose5.7.1/Caddy2.11.9 and mock evidence | PASS52 tests (46 deployment/fixture +6 new scanner integrity); 380 total with backend/Web |
-| Python compilation | Existing isolated Python3.12.10 | PASS7.594 seconds |
-| Candidate Linux build/runtime/SBOM/Grype | Disposable GitHub runner only | NOT TESTED until exact run completes; no candidate clearance claimed |
+| Python compilation | Existing isolated Python3.12.10 | PASS3.36 seconds (final changed scripts) |
+| Candidate Linux builds and complete runtime | GitHub Linux amd64, `c52e8f21f882abb2e21b013394b2bc9869956bfc` | PASS four builds + pinned Mail image;11 runtime check groups; [run43288981277](https://github.com/techashfaq/landvilla/actions/runs/43288981277) |
+| Full Syft SBOM / Grype scan | Same exact five runtime images | FAIL505matches:120High/0Critical; API59/Web58/Caddy3; Mongo/Mail0High/0Critical |
+| Evidence integrity | Downloaded immutable CI artifact | PASS15 file SHA256 checks; complete package/layer provenance retained |
 | Production Compose/Caddy settings | Git diff against starting commit | Unchanged |
 
 CI adds full SBOM and full Grype reports for all five runtime images, exact image IDs and layers, package locations/ranges/vendor fixes, source binding and evidence checksums. Artifact retention is90days. High/Critical gate remains unsuppressed, even for vendor-unfixed matches.
+
+CI attempt history for this campaign: run43286352072 failed before image builds because a new test did not create its scratch directory; corrected without changing assertions. Run43286555636 built API/Web/Caddy but failed Mongo's curl-based download; replaced with checksum-verified Docker ADD. Run43287374286 completed runtime and full scan (160High/3Critical), exposing pre-existing Mongo tools and an incorrect YAML destination; finalrun43288981277 corrects the actual entrypoint path and removes unused tools. No failed attempt was hidden or treated as acceptance.
+
+Final source `c52e8f21f882abb2e21b013394b2bc9869956bfc`, artifactID13974974795. CI test totals:211 backend,117Web,6scanner integrity; lint/type/build/pip check PASS. Local380 total includes52deployment/evidence tests. Exact images and all15 checksums are in PRODUCTION_IMAGE_SECURITY_REVIEW.md. Reports added after this source commit do not alter tested application/build code; no production release artifact is published.

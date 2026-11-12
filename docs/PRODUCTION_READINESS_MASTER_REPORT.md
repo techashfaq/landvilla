@@ -1,6 +1,6 @@
 # LANDVILLA production readiness master report
 
-Execution date: 12 November 2026. **Production release BLOCKED.** No production deployment or EC2 mutation has occurred. Current executed evidence is maintained in PRODUCTION_VERIFICATION_MATRIX.md; historical Phase2 counts are not current results.
+Original execution:12November2026; image-remediation update:13November2026. **Production release BLOCKED.** No production deployment or EC2 mutation has occurred. Current executed evidence is maintained in PRODUCTION_VERIFICATION_MATRIX.md; historical Phase2 counts are not current results.
 
 ## Verified starting state and preservation
 
@@ -154,10 +154,16 @@ Additional reviewed paths from runtime verification:
 
 Runtime testing identified and corrected a real logout boundary defect: Starlette emits a quoted-empty deletion cookie, which the Web validator previously rejected with502. The validator now accepts that exact empty form only with Max-Age=0 and retains all security/duplicate-attribute checks. New tests preserve actual serialization. The rehearsal now has a Caddy-only ingress bridge, checked separately for collisions; its internal application bridge remains ordinary shared networking, not directional isolation. SMTP fixture CA reuse is idempotent across repeated setup; postrestart smoke repeats authentication and private media checks. Release artifact recording requires successful same-commit evidence and matching Linux image IDs/revision labels, not merely SHA-looking tags.
 
-## Image remediation campaign � 13 November 2026
+## Image remediation campaign — 13 November 2026
 
 Started from clean dev at d5bf8093cf45e27d7faa5b932e43096c9f484dcf, matching origin/dev. Existing work was preserved. This campaign updates only image build inputs, disposable CI validation/evidence and reports. Production Compose/Caddy deployment settings and all external production resources remain unchanged.
 
 Supported candidate fixes: Node24 Trixie Slim; signed Debian Trixie zlib security packages for API/Web; removal of unused Web runtime npm/Yarn tooling; official Caddy2.11.9 with same-branch Alpine zlib update; rehearsal Mongo entrypoint YAML helper3.15.2 and Mailpit1.33.1. No application dependency pins or security boundaries changed. Candidate source/parent/architecture checks and complete Syft/Grype provenance are added. Caddy wrapper is a disposable CI candidate, not a production deployment setting change.
 
-Current local application tests:211 backend and117 Web passed, lint/typecheck/standalone production build and pip check passed. Additional deployment/scanner checks and exact Linux scan results are recorded in the verification matrix after execution. Supported upstream patches remain unavailable for Caddy Go modules and several Debian stable package findings; no acceptance waiver is authorized. **Image gate and production release remain BLOCKED pending unsuppressed candidate results and unresolved upstream fixes.**
+Current local application tests:211 backend and117 Web passed, lint/typecheck/standalone production build and pip check passed. Deployment/scanner checks passed52 tests, giving380 total. Exact Linux results are recorded below and in the verification matrix. Supported upstream patches remain unavailable for Caddy Go modules and several Debian stable package findings; no acceptance waiver is authorized. **Image gate FAIL and production release BLOCKED:120High/0Critical remain in the final unsuppressed candidate scan.**
+
+Final corrective source `c52e8f21f882abb2e21b013394b2bc9869956bfc` passed all Linux builds and11 runtime check groups in [run43288981277](https://github.com/techashfaq/landvilla/actions/runs/43288981277). Full five-image Syft/Grype evidence and15 independently verified checksums are retained. Scan505matches: API59High, Web58High, Caddy3High; zero Critical across all images; rehearsal Mongo/Mail zeroHigh/zeroCritical. Earlier160High/3Critical intermediate findings led to actual tool removal and correction of Mongo's real YAML entrypoint path, not metadata-only acceptance. Remaining Debian/Caddy matches are unresolved; no waiver or scanner exclusion.
+
+Changed campaign paths: backend/Dockerfile; web/Dockerfile and its production-proxy test; deploy/reviewed-base-images.json; deploy/images/caddy and deploy/images/mongo Dockerfiles/allowlists; scripts/check-rehearsal.py, rehearse-linux-ci.py, smoke-rehearsal.py, scan-rehearsal-images.py; tests/test_image_security.py and test_rehearsal_deployment.py; readiness workflow; the four image/master/matrix/blocker reports. Application dependencies, production Compose/Caddy settings, mobile source and isolation plan remain unchanged.
+
+**REHEARSAL PASSED — PRODUCTION RELEASE BLOCKED.** Security remediation is partial, not accepted as a clean candidate. No EC2 access, production setting/credential mutation, provider operation, production image publication or deployment occurred.

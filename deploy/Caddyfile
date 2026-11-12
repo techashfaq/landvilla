@@ -1,0 +1,75 @@
+{
+	email {$ACME_EMAIL}
+	admin off
+	persist_config off
+	grace_period 30s
+	# No access log. Suppress HTTP error records that can include request details.
+	log {
+		exclude http.log.error http.log.access
+	}
+	servers {
+		protocols h1 h2
+		strict_sni_host on
+		timeouts {
+			read_header 10s
+			read_body 60s
+			write 90s
+			idle 120s
+		}
+	}
+}
+
+# Automatic HTTPS issues certificates and redirects HTTP for both names.
+www.landvilla.in {
+	redir https://landvilla.in{uri} 308
+}
+
+landvilla.in {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	request_body {
+		max_size 12MB
+	}
+	# Delete arbitrary forwarding fields before proxy-specific generated headers.
+	# A wildcard header_up deletion would also delete the replacement scheme/host.
+	request_header -X-Forwarded-*
+	request_header -X-LV-*
+	# Dependency status belongs to internal probes, never public routes.
+	@probes path /health /health/* /ready /ready/*
+	respond @probes 404
+	reverse_proxy web:3000 {
+		# Remove all caller forwarding claims, including nonstandard variants.
+		header_up -Forwarded
+		header_up -X-Forwarded-For
+		header_up -X-Real-IP
+		header_up Host landvilla.in
+		header_up X-Forwarded-Host landvilla.in
+		header_up X-Forwarded-Proto https
+		# Direct TCP peer only; no CDN/client-supplied chain is accepted.
+		header_up X-LV-Client-IP {http.request.remote.host}
+		header_up X-LV-Ingress-Token {env.LANDVILLA_INGRESS_TOKEN}
+		# Origin, Referer, Cookie and CSRF headers retain their browser values.
+		health_uri /ready
+		health_interval 15s
+		health_timeout 8s
+		health_status 200
+		health_fails 1
+		health_passes 1
+		health_headers {
+			Host landvilla.in
+		}
+		transport http {
+			dial_timeout 3s
+			response_header_timeout 65s
+		}
+	}
+}
+
+# Container-loopback liveness only; neither published nor bound to its bridge IP.
+http://127.0.0.1:8080 {
+	bind 127.0.0.1
+	respond /health "ok" 200
+	respond 404
+}

@@ -1,0 +1,26 @@
+# Allow only build inputs; local reports, dependencies and arbitrary files stay out.
+*
+!package.json
+!package-lock.json
+!next.config.ts
+!tsconfig.json
+!src/
+!src/**
+!scripts/
+!scripts/prepare-standalone.mjs
+!scripts/production-build-safety.mjs
+!public/
+!public/**
+# Exclusions apply even below otherwise allowed source/public directories.
+node_modules
+.next
+.git
+.env*
+**/.env*
+**/*credentials*.json
+**/*service-account*.json
+**/*.pem
+**/*.key
+**/*.log
+**/*.tsbuildinfo
+next-env.d.ts

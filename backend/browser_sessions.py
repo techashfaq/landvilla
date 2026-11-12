@@ -1,3 +1,4 @@
+from client_identity import rate_identity
 """Cookie transport for the existing session store. No browser bearer fallback."""
 import hashlib
 import logging
@@ -156,7 +157,7 @@ async def bootstrap(request: Request):
     if row and (not row.get("user_id") or user):
         return {"user": public_user(user) if user else None, "csrf_token": row["csrf"],
                 "expires_in": max(0, int((aware(row["expires_at"]) - now()).total_seconds()))}
-    await throttle("browser-bootstrap:" + (request.client.host if request.client else "unknown"), 30, 3600)
+    await throttle("browser-bootstrap:" + rate_identity(request), 30, 3600)
     return await create(request)
 
 

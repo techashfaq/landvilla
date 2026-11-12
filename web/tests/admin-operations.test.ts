@@ -120,8 +120,8 @@ test("audited enquiry detail requires an administrator and cannot accept arbitra
   assert.equal(adminRoute("GET", "/api/admin/enquiries/e1?token=secret"), false);
 });
 
-test("payment inspection and provider refunds have explicit routes without manual settlement", () => {
+test("payment inspection remains available while refunds are disabled", () => {
   assert.equal(adminRoute("GET", "/api/admin/payments/pay1"), true);
-  assert.equal(adminRoute("POST", "/api/admin/payments/pay1/refund"), true);
+  assert.equal(adminRoute("POST", "/api/admin/payments/pay1/refund"), false);
   for (const action of ["paid", "success", "activate", "settle"]) assert.equal(adminRoute("POST", `/api/admin/payments/pay1/${action}`), false);
 });

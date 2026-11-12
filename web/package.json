@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "next dev --hostname localhost --port 19006",
     "build": "next build",
-    "start": "next start --hostname localhost --port 19006",
+    "postbuild": "node scripts/prepare-standalone.mjs",
+    "build:verify": "node scripts/verify-production-build.mjs",
+    "start": "node scripts/start-production.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "test": "node --test tests/*.test.ts"

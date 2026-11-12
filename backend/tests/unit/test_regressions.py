@@ -756,8 +756,14 @@ class Regressions(unittest.IsolatedAsyncioTestCase):
         headers = await self.browser_login()
         await self.db.user_sessions.update_many({"transport": "browser", "user_id": "owner"}, {"$set": {"expires_at": server.now() - timedelta(seconds=1)}})
         self.assertEqual((await self.api.get("https://localhost/api/auth/me", headers=headers)).status_code, 401)
-        with patch.dict(os.environ, {"APP_ENV": "production", "WEB_APP_ORIGINS": "https://app.example.test"}):
-            response = await self.api.get("https://localhost/api/auth/browser/bootstrap", headers={"Origin": "https://app.example.test"})
+        with patch.dict(os.environ, {"APP_ENV": "production", "WEB_APP_ORIGINS": "https://app.example.test",
+                                     "CLIENT_IP_MODE":"signed-v1", "WEB_API_IP_KEY":"e"*64,"FORWARDED_ALLOW_IPS":"172.30.250.10"}):
+            import time
+            stamp=str(int(time.time()))
+            signature=hmac.new(bytes.fromhex("e"*64),f"v1\n{stamp}\nGET\n/api/auth/browser/bootstrap\n203.0.113.10".encode(),hashlib.sha256).hexdigest()
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=server.app,client=("172.30.250.10",1234)),base_url="https://localhost") as secure_client:
+                response = await secure_client.get("/api/auth/browser/bootstrap", headers={"Origin": "https://app.example.test",
+                    "X-LV-Client-IP":"203.0.113.10","X-LV-IP-Time":stamp,"X-LV-IP-Signature":signature})
             self.assertEqual(response.status_code, 200)
             self.assertIn("__Host-lv_session=", response.headers["set-cookie"])
             self.assertIn("Secure", response.headers["set-cookie"])

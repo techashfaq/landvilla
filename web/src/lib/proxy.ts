@@ -1,9 +1,12 @@
 import type { ProxyConfig } from "./config.ts";
+import { backendHeaders } from "./backend-headers.ts";
 import { accountPath, accountRoute } from "./account-routes.ts";
 import { limitedBody, mediaRoute, mediaTypes, validateUpload } from "./media.ts";
 import { propertyQuery } from "./property-query.ts";
 import { adminPath, adminRoute } from "./admin-routes.ts";
 import { publicPropertiesResponse, publicPropertyResponse } from "./public-response.ts";
+import { sessionCookie, validSessionCookie } from "./session-cookie.ts";
+export { sessionCookie } from "./session-cookie.ts";
 
 // Explicit route policies; backend authorizes every protected read and mutation.
 export function allowedRoute(method: string, path: string): boolean {
@@ -12,23 +15,13 @@ export function allowedRoute(method: string, path: string): boolean {
   const publicPropertyRead = method === "GET" && (path === "/api/properties" || /^\/api\/properties\/[a-zA-Z0-9_-]{1,100}$/.test(path));
   return mediaRoute(method, path) || accountRoute(method, path) || adminRoute(method, path) || publicPropertyRead || (method === "GET" && (reads.includes(path) || /^\/api\/legal\/(privacy|terms)\.json$/.test(path))) || (method === "POST" && writes.includes(path));
 }
-export function sessionCookie(raw: string | null, production: boolean): string | null {
-  const name = production ? "__Host-lv_session" : "lv_dev_session";
-  const matches = (raw || "").split(";").map(x => x.trim()).filter(x => x.startsWith(name + "="));
-  return matches.length === 1 ? matches[0]! : null;
-}
 function fail(status: number, detail: string) {
   return Response.json({ detail }, { status, headers: { "Cache-Control": "no-store" } });
 }
-function validCookie(header: string, secure: boolean): boolean {
-  const parts = header.split(";").map(part => part.trim().toLowerCase());
-  const expected = secure ? "__host-lv_session=" : "lv_dev_session=";
-  return !!parts[0]?.startsWith(expected) && parts.includes("httponly") && parts.includes("path=/") && parts.includes("samesite=lax") &&
-    !parts.some(part => part.startsWith("domain=")) && (!secure || parts.includes("secure"));
-}
-export async function forward(request: Request, config: ProxyConfig, transport: typeof fetch = fetch): Promise<Response> {
+export async function forward(request: Request, config: ProxyConfig, transport: typeof fetch = fetch, identity?: Headers): Promise<Response> {
   const url = new URL(request.url);
-  const publicRead = request.method === "GET" && (url.pathname === "/api/properties" || url.pathname.startsWith("/api/properties/"));
+  const publicPropertyRead = request.method === "GET" && (url.pathname === "/api/properties" || url.pathname.startsWith("/api/properties/"));
+  const publicRead = publicPropertyRead || (request.method === "GET" && (url.pathname === "/api/meta" || /^\/api\/legal\/(privacy|terms)\.json$/.test(url.pathname)));
   if (!allowedRoute(request.method, url.pathname)) return fail(404, "This API route is not available in the web foundation.");
   if (request.headers.has("authorization")) return fail(400, "Unsupported request credentials or query parameters.");
   let upstreamPath = url.pathname;
@@ -52,14 +45,17 @@ export async function forward(request: Request, config: ProxyConfig, transport: 
   const unsafe = !["GET", "HEAD", "OPTIONS"].includes(request.method);
   if (unsafe && suppliedOrigin !== config.webOrigin) return fail(403, "A same-origin request is required.");
   if (unsafe && !request.headers.get("x-csrf-token")) return fail(403, "Initialize your browser session before continuing.");
-  const headers = new Headers({ "X-LV-Client": "web", Accept: "application/json" });
+  const headers = backendHeaders(config);
+  if (identity) for (const [name, value] of identity) headers.set(name, value);
+  headers.set("X-LV-Client", "web");
   const cookie = sessionCookie(request.headers.get("cookie"), config.production || new URL(config.webOrigin).protocol === "https:");
   if (cookie && !publicRead) headers.set("Cookie", cookie);
   for (const name of ["origin", "referer", "sec-fetch-site", "sec-fetch-mode", "x-csrf-token"]) {
     const value = request.headers.get(name);
     if (value && !(publicRead && name === "x-csrf-token")) headers.set(name, value);
   }
-  // No forwarded IP/host/scheme supplied by the caller is trusted or relayed.
+  // Scheme is generated from fixed configuration above. No caller-supplied
+  // forwarding field (including IP, host or scheme) is trusted or relayed.
   let body: string | FormData | undefined;
   if (url.pathname === "/api/uploads") {
     if (!request.headers.get("content-type")?.startsWith("multipart/form-data;")) return fail(415, "Multipart upload required.");
@@ -98,7 +94,7 @@ export async function forward(request: Request, config: ProxyConfig, transport: 
     }
     if (!upstream.headers.get("content-type")?.includes("application/json")) return fail(502, "The API returned an unexpected response.");
     const responseHeaders = new Headers({ "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
-    if (publicRead) {
+    if (publicPropertyRead) {
       if (!upstream.ok) return fail(upstream.status >= 500 ? 503 : upstream.status, upstream.status === 404 ? "This property is not available." : "Property information could not be loaded.");
       try {
         const data: unknown = await upstream.json();
@@ -106,8 +102,8 @@ export async function forward(request: Request, config: ProxyConfig, transport: 
       } catch { return fail(502, "The API returned invalid property information."); }
     }
     // Preserve separate cookie headers, including cookie deletion attributes.
-    for (const cookieHeader of upstream.headers.getSetCookie()) {
-      if (!validCookie(cookieHeader, config.production || config.webOrigin.startsWith("https:"))) return fail(502, "Backend cookie configuration does not match this website.");
+    for (const cookieHeader of publicRead ? [] : upstream.headers.getSetCookie()) {
+      if (!validSessionCookie(cookieHeader, config.production || config.webOrigin.startsWith("https:"))) return fail(502, "Backend cookie configuration does not match this website.");
       responseHeaders.append("Set-Cookie", cookieHeader);
     }
     const retryAfter = upstream.headers.get("retry-after");

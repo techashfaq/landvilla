@@ -1,0 +1,50 @@
+{
+ admin off
+ persist_config off
+ skip_install_trust
+ auto_https disable_redirects
+ grace_period 30s
+ log {
+  exclude http.log.error http.log.access
+ }
+ servers {
+  protocols h1 h2
+  strict_sni_host on
+ }
+}
+https://localhost:8443 {
+ tls internal
+ request_body {
+  max_size 12MB
+ }
+ request_header -X-Forwarded-*
+ request_header -X-LV-*
+ @probes path /health /health/* /ready /ready/*
+ respond @probes 404
+ reverse_proxy web:3000 {
+  header_up -Forwarded
+  header_up -X-Forwarded-For
+  header_up -X-Real-IP
+  header_up Host localhost:8443
+  header_up X-Forwarded-Host localhost:8443
+  header_up X-Forwarded-Proto https
+  header_up X-LV-Client-IP {http.request.remote.host}
+  header_up X-LV-Ingress-Token {env.LANDVILLA_INGRESS_TOKEN}
+  health_uri /ready
+  health_interval 15s
+  health_timeout 8s
+  health_status 200
+  health_headers {
+   Host localhost:8443
+  }
+  transport http {
+   dial_timeout 3s
+   response_header_timeout 65s
+  }
+ }
+}
+http://127.0.0.1:8080 {
+ bind 127.0.0.1
+ respond /health "ok" 200
+ respond 404
+}

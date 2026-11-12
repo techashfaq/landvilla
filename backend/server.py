@@ -1,3 +1,4 @@
+from client_identity import rate_identity
 import logging
 import hashlib
 import os
@@ -18,8 +19,7 @@ from pymongo.errors import PyMongoError
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.cors import CORSMiddleware
-from starlette.middleware.trustedhost import TrustedHostMiddleware
-from production_runtime import validate_environment, SafeJSONFormatter, dependency_readiness, readiness_storage_client
+from production_runtime import validate_environment, SafeJSONFormatter, dependency_readiness, readiness_storage_client, add_production_host_middleware
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -49,8 +49,6 @@ if PRODUCTION:
         handler.setFormatter(SafeJSONFormatter())
 
 app = FastAPI(title="LANDVILLA API", docs_url=None if PRODUCTION else "/docs", redoc_url=None if PRODUCTION else "/redoc")
-if PRODUCTION:
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=[h.strip() for h in os.environ["TRUSTED_HOSTS"].split(",")])
 
 
 @app.middleware("http")
@@ -63,7 +61,7 @@ async def private_response_headers(request: Request, call_next):
                 raise HTTPException(400, "HTTPS required")
             if request.method not in ("GET", "HEAD", "OPTIONS") and request.url.path.startswith(("/api/auth/", "/api/uploads", "/api/account/", "/api/admin/", "/api/payments/", "/api/legal/delete-account")) and request.url.path not in ("/api/payments/razorpay/webhook", "/api/payments/play/notifications"):
                 # Uvicorn must trust only the actual ingress proxy addresses.
-                await identity.throttle("ingress:" + (request.client.host if request.client else "unknown"), 120, 60)
+                await identity.throttle("ingress:" + rate_identity(request), 120, 60)
         await browser_sessions.guard(request)
         response = await call_next(request)
     except HTTPException as exc:
@@ -113,13 +111,13 @@ async def readiness():
             await db.command("ping")
     except Exception:
         return JSONResponse(status_code=503, content={"status": "unavailable"}, headers={"Cache-Control": "no-store"})
-    return {"status": "ready"}
+    return JSONResponse({"status": "ready"}, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/health", include_in_schema=False)
 @app.head("/health", include_in_schema=False)
 async def health():
-    return {"status": "ok"}
+    return JSONResponse({"status": "ok"}, headers={"Cache-Control": "no-store"})
 
 
 api = APIRouter(prefix="/api")
@@ -730,6 +728,7 @@ web_origins = browser_sessions.origins()
 if "*" in cors_origins:
     raise RuntimeError("Credentialed CORS requires explicit origins")
 app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=list(set(cors_origins + web_origins)), allow_methods=["GET", "HEAD", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"], allow_headers=["Content-Type", "Authorization", "X-LV-Client", "X-CSRF-Token"])
+add_production_host_middleware(app, os.environ)
 
 
 async def seed_test_sessions():

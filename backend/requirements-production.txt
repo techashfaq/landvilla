@@ -1,8 +1,10 @@
-fastapi==0.110.1
-starlette==0.37.2
+# Coordinated upgrade and runtime closure verified by the offline regression suite.
+-c requirements-production-constraints.txt
+fastapi==0.133.0
+starlette==1.3.1
 uvicorn==0.25.0
 motor==3.7.1
-pymongo==4.18.2
+pymongo==4.18.3
 pydantic==2.14.1
 python-dotenv==1.2.4
 python-multipart==0.0.32

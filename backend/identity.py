@@ -1,3 +1,4 @@
+from client_identity import rate_identity
 """Passwordless identities. No test OTP, no plaintext OTP/session storage."""
 import hashlib
 import logging
@@ -201,7 +202,7 @@ async def request_otp(body: OtpRequest, request: Request):
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     provider_ready(channel)
-    await throttle("ip:" + (request.client.host if request.client else "unknown"), 20, 3600)
+    await throttle("ip:" + rate_identity(request), 20, 3600)
     await throttle("identifier:" + identifier, 5, 3600)
     user = None
     if body.purpose == "contact":
@@ -261,7 +262,7 @@ async def issue_session(user: dict, request: Request = None):
 async def verify_otp(body: OtpVerify, request: Request):
     await timed_auth("identity_preflight", require_identity())
     otp_secret()
-    await timed_auth("verify_throttle", throttle("verify-ip:" + (request.client.host if request.client else "unknown"), 50, 3600))
+    await timed_auth("verify_throttle", throttle("verify-ip:" + rate_identity(request), 50, 3600))
     row = await timed_auth("otp_challenge_lookup", db.otp_challenges.find_one_and_update({"challenge_id": body.challenge_id, "used": False, "delivered": True,
         "expires_at": {"$gt": now()}, "attempts": {"$lt": 5}}, {"$inc": {"attempts": 1}}, return_document=ReturnDocument.AFTER))
     if not row or not hmac.compare_digest(row["verifier"], verifier(body.challenge_id, body.code)):
@@ -401,7 +402,7 @@ def verify_google(token: str):
 @router.post("/auth/google")
 async def google_session(body: GoogleIn, request: Request):
     await require_identity()
-    await throttle("google:" + (request.client.host if request.client else "unknown"), 30, 3600)
+    await throttle("google:" + rate_identity(request), 30, 3600)
     info = await run_in_threadpool(verify_google, body.id_token)
     await browser_sessions.claim_google(request, info)
     user = await db.users.find_one({"google_sub": info["sub"]})

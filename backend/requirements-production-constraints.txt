@@ -1,0 +1,26 @@
+# Exact transitive runtime versions tested on Python 3.12.10 (Windows).
+# Linux wheel/image acceptance and fresh advisory checks remain release gates.
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+botocore==1.43.122
+certifi==2026.10.23
+cffi==2.1.1
+charset-normalizer==3.5.2
+click==8.5.0
+cryptography==50.0.2
+dnspython==2.9.0
+h11==0.16.0
+httpcore==1.0.9
+idna==3.20
+pyasn1==0.6.5
+pyasn1-modules==0.4.2
+pycparser==3.12
+jmespath==1.1.0
+pydantic-core==2.50.1
+python-dateutil==2.9.0.post0
+s3transfer==0.19.3
+six==1.17.0
+typing-extensions==4.16.0
+typing-inspection==0.4.4
+urllib3==2.8.0

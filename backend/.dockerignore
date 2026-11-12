@@ -1,6 +1,7 @@
 *
 !*.py
 !requirements-production.txt
+!requirements-production-constraints.txt
 !scripts/
 !scripts/*.py
 !Dockerfile

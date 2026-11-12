@@ -40,7 +40,7 @@ export class BrowserClient {
     if (csrf) headers["X-CSRF-Token"] = csrf;
     if (body !== undefined && !(body instanceof FormData)) headers["Content-Type"] = "application/json";
     let response: Response;
-    try { response = await this.transport(path, { method, headers, credentials: "same-origin", cache: "no-store", body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(body instanceof FormData ? 60000 : 20000) }); }
+    try { response = await this.transport(path, { method, headers, credentials: "same-origin", cache: "no-store", redirect: "error", body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(body instanceof FormData ? 60000 : 20000) }); }
     catch {
   throw new ApiError(
     0,

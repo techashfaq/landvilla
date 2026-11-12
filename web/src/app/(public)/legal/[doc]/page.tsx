@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { readConfig } from "@/lib/config";
+import { backendHeaders } from "@/lib/backend-headers";
 import { isRecord } from "@/lib/contracts";
 export const dynamic = "force-dynamic";
 export default async function LegalPage({ params }: { params: Promise<{ doc: string }> }) {
@@ -7,8 +8,8 @@ export default async function LegalPage({ params }: { params: Promise<{ doc: str
   if (!["privacy", "terms"].includes(doc)) notFound();
   let content: { title: string; body: string; version: string } | null = null;
   try {
-    const { backendOrigin } = readConfig(process.env);
-    const response = await fetch(`${backendOrigin}/api/legal/${doc}.json`, { cache: "no-store", redirect: "error", signal: AbortSignal.timeout(10000) });
+    const config = readConfig(process.env);
+    const response = await fetch(`${config.backendOrigin}/api/legal/${doc}.json`, { headers: backendHeaders(config), credentials: "omit", cache: "no-store", redirect: "error", signal: AbortSignal.timeout(10000) });
     const data: unknown = response.ok ? await response.json() : null;
     if (isRecord(data) && typeof data.title === "string" && typeof data.body === "string") content = { title: data.title, body: data.body, version: typeof data.version === "string" ? data.version : "" };
   } catch { /* Safe, recoverable content-unavailable state. No fabricated legal text. */ }

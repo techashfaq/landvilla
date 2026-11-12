@@ -24,7 +24,7 @@ export function adminPath(method: string, input: string): string {
   if (!query && method === "POST" && parts.length === 1 && ["featured-plans", "localities", "cms", "zones", "cities"].includes(parts[0]!)) return path;
   if (!query && parts.length === 2 && identifier.test(parts[1]!) && ((method === "PUT" && ["featured-plans", "cms", "zones"].includes(parts[0]!)) || (method === "PATCH" && parts[0] === "localities"))) return path;
   if (method === "POST" && !query && parts.length === 3 && identifier.test(parts[1] || "")) {
-    const actions = ({ listings: ["approve", "reject", "request-changes", "suspend", "deactivate", "reactivate"], brokers: ["approve", "reject", "suspend"], users: ["suspend", "reactivate"], enquiries: ["status"], reports: ["resolve"], staff: ["permissions"], payments: ["refund"], localities: ["activate", "deactivate", "verify"] } as Record<string, string[]>)[parts[0]!] ?? [];
+    const actions = ({ listings: ["approve", "reject", "request-changes", "suspend", "deactivate", "reactivate"], brokers: ["approve", "reject", "suspend"], users: ["suspend", "reactivate"], enquiries: ["status"], reports: ["resolve"], staff: ["permissions"], payments: [], localities: ["activate", "deactivate", "verify"] } as Record<string, string[]>)[parts[0]!] ?? [];
     if (actions.includes(parts[2]!)) return path;
   }
   throw new Error("Unsupported administrative operation");

@@ -1,4 +1,5 @@
 import type { ProxyConfig } from "./config.ts";
+import { backendHeaders } from "./backend-headers.ts";
 import { parseMeta, parseProperty, parsePropertyPage } from "./property-contracts.ts";
 import { propertyId, propertyQuery } from "./property-query.ts";
 
@@ -10,7 +11,7 @@ export class PublicApiError extends Error {
 export function publicApi(config: ProxyConfig, transport: typeof fetch = fetch) {
   async function read<T>(path: string, parse: (value: unknown) => T): Promise<T> {
     try {
-      const response = await transport(config.backendOrigin + path, { headers: { Accept: "application/json" }, credentials: "omit", cache: "no-store", redirect: "manual", signal: AbortSignal.timeout(12000) });
+      const response = await transport(config.backendOrigin + path, { headers: backendHeaders(config), credentials: "omit", cache: "no-store", redirect: "manual", signal: AbortSignal.timeout(12000) });
       if (!response.ok) throw new PublicApiError([400, 404, 422, 429].includes(response.status) ? response.status : 503);
       if (!response.headers.get("content-type")?.includes("application/json")) throw new PublicApiError(502);
       return parse(await response.json());

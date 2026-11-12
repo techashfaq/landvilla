@@ -1,26 +1,143 @@
-# Target-neutral artifact only. Supply secrets via an external access-controlled file.
+# Prepared configuration only. No subnet/source IP is approved by this file.
+# Run scripts/check-production-compose.py and close the host verification gates first.
+name: landvilla
+
+x-runtime: &runtime
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: unless-stopped
+  stop_grace_period: 40s
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
 services:
   api:
+    <<: *runtime
+    user: "10001:10001"
+    image: ${LANDVILLA_API_IMAGE:?Set a reviewed API release image}
     build:
       context: ../backend
     env_file:
-      - ${LANDVILLA_ENV_FILE:?Set an external environment file path}
+      - ${LANDVILLA_ENV_FILE:?Set an external access-controlled backend environment file}
     environment:
       APP_ENV: production
+      DEPLOYMENT_TIER: production
+      CLIENT_IP_MODE: signed-v1
+      WEB_API_IP_KEY: ${LANDVILLA_WEB_API_IP_KEY:?Set a dedicated Web-to-API identity key}
+      PYTHON_DOTENV_DISABLED: "1"
+      FORWARDED_ALLOW_IPS: ${LANDVILLA_WEB_PROXY_IP:?Set the verified exact Web source IPv4 address}
+      TRUSTED_HOSTS: api,127.0.0.1
+      CORS_ORIGINS: https://landvilla.in
+      WEB_APP_ORIGINS: https://landvilla.in
       SEED_ON_STARTUP: "false"
       SEED_DEMO_LISTINGS: "false"
       SEED_TEST_SESSIONS: "false"
-    ports:
-      - "127.0.0.1:8000:8000"
-    read_only: true
+      ALLOW_LIVE_PAYMENTS: "false"
+      GOOGLE_PLAY_BILLING_ENABLED: "false"
+      REFUNDS_ENABLED: "false"
+      RAZORPAY_KEY_ID: ""
+      RAZORPAY_KEY_SECRET: ""
+      RAZORPAY_WEBHOOK_SECRET: ""
+    networks: [application]
     tmpfs:
       - /tmp:size=64m,mode=1777
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    restart: unless-stopped
-    stop_grace_period: 40s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+    cpus: "1.0"
+    mem_limit: 768m
+    pids_limit: 128
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
+
+  web:
+    <<: *runtime
+    user: "1000:1000"
+    image: ${LANDVILLA_WEB_IMAGE:?Set a reviewed Web release image}
+    build:
+      context: ../web
+      args:
+        NEXT_PUBLIC_GOOGLE_WEB_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_WEB_CLIENT_ID:-}
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      WEB_ORIGIN: https://landvilla.in
+      BACKEND_ORIGIN: http://api:8000
+      BACKEND_TRANSPORT: private-http
+      CLIENT_IP_MODE: signed-v1
+      LANDVILLA_INGRESS_TOKEN: ${LANDVILLA_INGRESS_TOKEN:?Set a dedicated Caddy-to-Web identity token}
+      WEB_API_IP_KEY: ${LANDVILLA_WEB_API_IP_KEY:?Set a dedicated Web-to-API identity key}
+    networks:
+      application:
+        ipv4_address: ${LANDVILLA_WEB_PROXY_IP:?Set the verified exact Web source IPv4 address}
+    depends_on:
+      api:
+        condition: service_healthy
+    init: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /app/.next/cache:size=128m,uid=1000,gid=1000,mode=0700
+    cpus: "1.0"
+    mem_limit: 768m
+    pids_limit: 128
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/health', {signal:AbortSignal.timeout(2000)}).then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
+
+  caddy:
+    <<: *runtime
+    image: ${LANDVILLA_CADDY_IMAGE:?Set a reviewed digest-pinned official Caddy Alpine image}
+    command: [caddy, run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile]
+    # Official image runs as root; only low-port binding capability is restored.
+    cap_add: [NET_BIND_SERVICE]
+    environment:
+      ACME_EMAIL: ${LANDVILLA_ACME_EMAIL:?Set the certificate operations email}
+      LANDVILLA_INGRESS_TOKEN: ${LANDVILLA_INGRESS_TOKEN:?Set a dedicated Caddy-to-Web identity token}
+    ports:
+      - "80:80/tcp"
+      - "443:443/tcp"
+    networks: [application]
+    depends_on:
+      web:
+        condition: service_healthy
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cpus: "0.5"
+    mem_limit: 256m
+    pids_limit: 64
+    healthcheck:
+      test: [CMD, wget, -q, -T, "2", -O, /dev/null, http://127.0.0.1:8080/health]
+      interval: 30s
+      timeout: 3s
+      start_period: 15s
+      retries: 3
+
+# Ordinary Docker bridge for private service discovery and a stable proxy identity.
+# This is NOT the four-network directional isolation plan or an egress firewall.
+networks:
+  application:
+    driver: bridge
+    enable_ipv6: false
+    ipam:
+      config:
+        - subnet: ${LANDVILLA_DOCKER_SUBNET:?Set a collision-checked private IPv4 subnet}
+          # Reserve Web's static address outside this pool, including on recreation.
+          ip_range: ${LANDVILLA_DOCKER_DYNAMIC_RANGE:?Set an allocation pool excluding the Web proxy address}
+
+volumes:
+  caddy_data:
+  caddy_config:

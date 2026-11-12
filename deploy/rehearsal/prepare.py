@@ -8,17 +8,21 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import OperationFailure
 
 
-async def main():
-    if (os.getenv("DEPLOYMENT_TIER") != "rehearsal" or os.getenv("DB_NAME") != "landvilla_rehearsal" or
-        os.getenv("MONGO_URL") != "mongodb://mongo:27017/landvilla_rehearsal?replicaSet=lv_rehearsal"):
-        raise RuntimeError("Disposable rehearsal target required")
+def prepare_tls(directory):
     # A disposable CA authenticates only the local SMTP fixture; TLS is never disabled.
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.x509.oid import NameOID
-    directory=Path("/home/app/tls")
     directory.mkdir(mode=0o700,exist_ok=True)
+    files=[directory/name for name in ("ca.crt","mail.crt","mail.key")]
+    if any(path.exists() for path in files):
+        # Re-running one-shot setup must not rotate trust beneath running Mailpit.
+        if not all(path.is_file() for path in files): raise RuntimeError("Incomplete fixture TLS")
+        existing=x509.load_pem_x509_certificate(files[0].read_bytes())
+        if existing.not_valid_after_utc <= datetime.now(timezone.utc)+timedelta(hours=1):
+            raise RuntimeError("Expired fixture TLS requires explicit disposable cleanup")
+        return
     key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
     name=x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,"LANDVILLA disposable SMTP fixture")])
     now=datetime.now(timezone.utc)
@@ -40,6 +44,14 @@ async def main():
     (directory/"mail.crt").write_bytes(leaf.public_bytes(serialization.Encoding.PEM))
     (directory/"mail.key").write_bytes(key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
     (directory/"mail.key").chmod(0o600)
+
+
+async def main():
+    if (os.getenv("DEPLOYMENT_TIER") != "rehearsal" or os.getenv("DB_NAME") != "landvilla_rehearsal" or
+        os.getenv("MONGO_URL") != "mongodb://mongo:27017/landvilla_rehearsal?replicaSet=lv_rehearsal"):
+        raise RuntimeError("Disposable rehearsal target required")
+    prepare_tls(Path("/home/app/tls"))
+    now=datetime.now(timezone.utc)
     direct=AsyncIOMotorClient("mongodb://mongo:27017/?directConnection=true", serverSelectionTimeoutMS=3000)
     try:
         try:

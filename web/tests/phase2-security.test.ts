@@ -27,6 +27,24 @@ test("valid logout expiry and cookie flags are retained", () => {
   assert.equal(validSessionCookie("lv_dev_session=synthetic; Path=/; HttpOnly; SameSite=Lax", false), true);
 });
 
+test("Starlette quoted-empty logout cookie requires explicit deletion and safe attributes", () => {
+  const deletion = '__Host-lv_session=""; expires=Thu, 12 Nov 2026 00:00:00 GMT; HttpOnly; Max-Age=0; Path=/; SameSite=lax; Secure';
+  assert.equal(validSessionCookie(deletion, true), true);
+  for (const invalid of [deletion.replace("Max-Age=0", "Max-Age=1"), deletion.replace("Max-Age=0; ", ""),
+    deletion.replace("; Secure", ""), deletion + "; Domain=landvilla.in", deletion + "; Max-Age=999"]) {
+    assert.equal(validSessionCookie(invalid, true), false);
+  }
+});
+
+test("proxy preserves actual Starlette logout serialization", async () => {
+  const deletion = '__Host-lv_session=""; expires=Thu, 12 Nov 2026 00:00:00 GMT; HttpOnly; Max-Age=0; Path=/; SameSite=lax; Secure';
+  const response = await forward(new Request(config.webOrigin + "/api/auth/logout", { method: "POST", headers: {
+    Origin: config.webOrigin, "Content-Type": "application/json", "X-CSRF-Token": "synthetic", Cookie: "__Host-lv_session=synthetic",
+  }, body: "{}" }), config, async () => Response.json({ ok: true }, { headers: { "Set-Cookie": deletion } }));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("set-cookie"), deletion);
+});
+
 test("request session parsing rejects duplicate and invalid cookie octets", () => {
   assert.equal(sessionCookie("unrelated=1; __Host-lv_session=synthetic", true), "__Host-lv_session=synthetic");
   for (const raw of ["__Host-lv_session=a; __Host-lv_session=b", "__Host-lv_session=bad value", "__Host-lv_session=bad,value", '__Host-lv_session="quoted"', "__host-lv_session=a"]) {

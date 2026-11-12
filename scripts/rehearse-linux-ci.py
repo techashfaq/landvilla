@@ -138,6 +138,7 @@ def main():
         run(compose+["up","-d","--wait","--wait-timeout","120"],capture=False)
         run(compose+["exec","-T","web","node","-e","fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))"])
         run(["curl","--fail","--silent","--show-error","--retry","5","--retry-delay","3","--cacert",str(WORK/"rehearsal-ca.crt"),"https://localhost:8443/api/meta"])
+        run([sys.executable,"scripts/smoke-rehearsal.py","--env-file",str(env_file),"--ca",str(WORK/"rehearsal-ca.crt"),"--existing-account"],capture=False)
         checks.append("same-artifact restart recovery; not previous-release rollback")
         completed=True
     except Exception:

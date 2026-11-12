@@ -11,7 +11,12 @@ export function sessionCookie(raw: string | null, secure: boolean): string | nul
 export function validSessionCookie(header: string, secure: boolean): boolean {
   const [pair, ...parts] = header.split(";").map(part => part.trim());
   const name = secure ? "__Host-lv_session" : "lv_dev_session";
-  if (!pair?.startsWith(name + "=") || !cookieValue.test(pair.slice(name.length + 1))) return false;
+  if (!pair?.startsWith(name + "=")) return false;
+  const value = pair.slice(name.length + 1);
+  // Starlette's delete_cookie serializes the empty value as two quotes.
+  // Accept only explicit deletion below, never a quoted authentication token.
+  const quotedEmpty = value === '""';
+  if (!quotedEmpty && !cookieValue.test(value)) return false;
   const attributes = new Map<string, string | null>();
   for (const part of parts) {
     const equal = part.indexOf("=");
@@ -24,6 +29,7 @@ export function validSessionCookie(header: string, secure: boolean): boolean {
   if (attributes.get("httponly") !== null || attributes.get("path") !== "/" || attributes.get("samesite")?.toLowerCase() !== "lax") return false;
   if ((secure || attributes.has("secure")) && attributes.get("secure") !== null) return false;
   const age = attributes.get("max-age");
+  if (quotedEmpty && age !== "0") return false;
   if (attributes.has("max-age") && (age === null || !/^-?\d+$/.test(age!) || !Number.isSafeInteger(Number(age)))) return false;
   const expires = attributes.get("expires");
   if (attributes.has("expires") && (expires === null || !Number.isFinite(Date.parse(expires!)))) return false;

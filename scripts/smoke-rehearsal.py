@@ -17,6 +17,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--env-file",required=True)
     p.add_argument("--ca",required=True)
+    p.add_argument("--existing-account",action="store_true",help="Login to the same synthetic account after restart")
     args=p.parse_args()
     spec=importlib.util.spec_from_file_location("checker",ROOT/"scripts/check-rehearsal.py")
     checker=importlib.util.module_from_spec(spec)
@@ -44,8 +45,10 @@ def main():
         headers={"Origin":origin,"X-CSRF-Token":bootstrap.json()["csrf_token"]}
         expected(client.post("/api/auth/logout",headers={"Origin":"https://untrusted.invalid"},json={}),403,"origin rejection")
         expected(client.post("/api/auth/logout",headers={"Origin":origin},json={}),403,"CSRF rejection")
-        challenge=expected(client.post("/api/auth/otp/request",headers=headers,json={"identifier":"rehearsal@example.com","purpose":"register",
-            "registration":{"first_name":"Rehearsal","last_name":"Fixture","email":"rehearsal@example.com","mobile":"+919999999991","account_role":"owner","accept_terms":True,"accept_privacy":True}}),200,"OTP registration")
+        identity={"identifier":"rehearsal@example.com","purpose":"login" if args.existing_account else "register"}
+        if not args.existing_account:
+            identity["registration"]={"first_name":"Rehearsal","last_name":"Fixture","email":"rehearsal@example.com","mobile":"+919999999991","account_role":"owner","accept_terms":True,"accept_privacy":True}
+        challenge=expected(client.post("/api/auth/otp/request",headers=headers,json=identity),200,"OTP request")
         # The local catcher's message is consumed in memory, never printed or archived.
         mail_code="import urllib.request; print(urllib.request.urlopen('http://mail:8025/api/v1/message/latest/raw',timeout=3).read().decode())"
         result=subprocess.run(compose+["exec","-T","api","python","-c",mail_code],env=env,capture_output=True,text=True,timeout=10)

@@ -83,6 +83,7 @@ def main():
     completed=False
     phase="startup"
     checks=[]
+    runtime_versions={}
     try:
         started=True
         run(compose+["up","-d","--wait","--wait-timeout","180"],capture=False)
@@ -120,6 +121,11 @@ def main():
         run(compose+["exec","-T","web","node","-e",
             "const fs=require('fs'); for(const p of ['/usr/local/lib/node_modules/npm','/usr/local/bin/npm','/usr/local/bin/npx','/usr/local/bin/yarn']){if(fs.existsSync(p))process.exit(1)}"])
         run(compose+["exec","-T","api","python","-m","pip","check"])
+        runtime_versions["node"]=json.loads(run(compose+["exec","-T","web","node","-p","JSON.stringify(process.versions)"]))
+        runtime_versions["python"]=run(compose+["exec","-T","api","python","-c","import platform; print(platform.python_version())"])
+        runtime_versions["mongo_yaml"]=run(compose+["exec","-T","mongo","mongosh","--quiet","--nodb","--eval",
+            "const yaml=require('/opt/js-yaml/js-yaml.js'); if(yaml.load('fixture: true').fixture!==true) quit(1); print(require('/opt/js-yaml/package.json').version)"])
+        if runtime_versions["mongo_yaml"]!="3.15.2": raise RuntimeError("Patched YAML helper required")
         checks.append("supported Caddy version, unused Web package managers absent, API pip check")
         phase="TLS and synthetic browser flow"
         # Read the public certificate in the container's mount namespace. docker cp
@@ -170,7 +176,7 @@ def main():
         if started: run(compose+["down","--volumes","--remove-orphans"],capture=False)
         if completed: checks.append("disposable project containers/network/volumes cleanup completed")
         (WORK/"result.json").write_text(json.dumps({"commit":commit,"status":"PASS" if completed else "FAIL","checks_passed":checks,"images":settings,
-            "tool_versions":versions,"artifacts":artifacts,"production":False,
+            "tool_versions":versions,"runtime_versions":runtime_versions,"artifacts":artifacts,"production":False,
             "directional_isolation":"NOT TESTED / not implemented","previous_release_rollback":"BLOCKED no known-good artifact"},indent=2)+"\n")
     print("PASS disposable Linux runtime campaign; production/EC2 acceptance remains separate")
 

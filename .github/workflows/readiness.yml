@@ -44,10 +44,13 @@ jobs:
         with: {python-version: '3.12'}
       - run: python -m pip install -r backend/requirements-test.txt
       - run: python scripts/rehearse-linux-ci.py
+      - run: python scripts/scan-rehearsal-images.py --result .cache/linux-rehearsal/result.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: disposable-runtime-evidence-${{ github.sha }}
-          path: .cache/linux-rehearsal/result.json
+          path: |
+            .cache/linux-rehearsal/result.json
+            .cache/linux-rehearsal/image-security.json
           if-no-files-found: warn
           retention-days: 14

@@ -20,7 +20,12 @@ ENV["COMPOSE_DISABLE_ENV_FILE"]="1"
 
 def run(command, *, capture=True):
     result=subprocess.run(command,cwd=ROOT,env=ENV,capture_output=capture,text=True,timeout=600,check=False)
-    if result.returncode: raise RuntimeError("Command failed: "+command[0]+" "+command[1])
+    if result.returncode:
+        # curl targets are fixed HTTPS localhost URLs with no credentials/query.
+        # Preserve its TLS/connection diagnostic, never arbitrary command output.
+        if command[0]=="curl" and result.stderr:
+            print(result.stderr.strip(),flush=True)
+        raise RuntimeError("Command failed: "+command[0]+" "+command[1]+" exit="+str(result.returncode))
     return result.stdout.strip() if capture else ""
 
 
@@ -49,10 +54,18 @@ def main():
     settings={"REHEARSAL_SUBNET":str(selected),"REHEARSAL_DYNAMIC_RANGE":str(list(selected.subnets(new_prefix=25))[1]),
               "REHEARSAL_WEB_IP":str(selected.network_address+10),"REHEARSAL_MONGO_IMAGE":images["library/mongo"],
               "REHEARSAL_MAIL_IMAGE":images["axllent/mailpit"],"REHEARSAL_CADDY_IMAGE":images["library/caddy"]}
+    versions={"docker_engine":run(["docker","version","--format","{{.Server.Version}}"]),
+              "compose":run(["docker","compose","version","--short"])}
+    artifacts={}
     for name in ("api","web"):
         tag=f"landvilla-{name}:{commit}"
         run(["docker","build","--label","org.opencontainers.image.revision="+commit,"-t",tag,"backend" if name=="api" else "web"],capture=False)
         settings["REHEARSAL_"+name.upper()+"_IMAGE"]=run(["docker","image","inspect","--format","{{.Id}}",tag])
+        metadata=json.loads(run(["docker","image","inspect","--format","{{json .}}",tag]))
+        artifacts[name]={key:metadata.get(key) for key in ("Id","Size","Os","Architecture","Created")}
+        artifacts[name]["revision"]=(metadata.get("Config",{}).get("Labels") or {}).get("org.opencontainers.image.revision")
+        if artifacts[name]["Os"]!="linux" or artifacts[name]["revision"]!=commit:
+            raise RuntimeError("Linux source artifact mismatch")
     env_file=WORK/"rehearsal.env"
     env_file.write_text("\n".join(k+"="+v for k,v in settings.items())+"\n")
     model=checker.resolve(env_file)
@@ -139,8 +152,10 @@ def main():
         raise
     finally:
         if started: run(compose+["down","--volumes","--remove-orphans"],capture=False)
+        if completed: checks.append("disposable project containers/network/volumes cleanup completed")
         (WORK/"result.json").write_text(json.dumps({"commit":commit,"status":"PASS" if completed else "FAIL","checks_passed":checks,"images":settings,
-            "production":False,"directional_isolation":"NOT TESTED / not implemented","previous_release_rollback":"BLOCKED no known-good artifact"},indent=2)+"\n")
+            "tool_versions":versions,"artifacts":artifacts,"production":False,
+            "directional_isolation":"NOT TESTED / not implemented","previous_release_rollback":"BLOCKED no known-good artifact"},indent=2)+"\n")
     print("PASS disposable Linux runtime campaign; production/EC2 acceptance remains separate")
 
 

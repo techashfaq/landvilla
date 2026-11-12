@@ -63,6 +63,7 @@ services:
     <<: *runtime
     image: ${REHEARSAL_API_IMAGE:?Exact tested API image required}
     user: "10001:10001"
+    init: true
     command: [python, /rehearsal/storage_mock.py]
     environment: {DEPLOYMENT_TIER: rehearsal}
     volumes: [./rehearsal/storage_mock.py:/rehearsal/storage_mock.py:ro]
@@ -94,6 +95,8 @@ services:
     user: "10001:10001"
     environment: *api-environment
     command: [python, /rehearsal/prepare.py]
+    # One-shot setup intentionally has no HTTP server; do not inherit API probe.
+    healthcheck: {disable: true}
     volumes: [./rehearsal/prepare.py:/rehearsal/prepare.py:ro, mail_tls:/home/app]
     depends_on:
       mongo: {condition: service_healthy}

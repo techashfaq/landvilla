@@ -1,10 +1,12 @@
 # LANDVILLA web — Phase 1 foundation
 
+> **12 November 2026 execution update:** Current implementation and actual verification results are recorded in [PRODUCTION_READINESS_MASTER_REPORT.md](../docs/PRODUCTION_READINESS_MASTER_REPORT.md) and [PRODUCTION_VERIFICATION_MATRIX.md](../docs/PRODUCTION_VERIFICATION_MATRIX.md). Production release remains gated on Linux/EC2, provider, browser and recovery acceptance. Older dated results below are historical.
+
 > **2 November 2026 update:** Phase 2 public/account/listing source is now implemented. Current verification is 49 web tests plus passing lint, full TypeScript and production build. Dependencies and the web lockfile now exist. The installation blocker below is historical. See `reports/PHASE2_COMPLETION_REPORT.md` for current scope, commands, API/security changes, browser blockers and incomplete acceptance gates. Do not interpret the older foundation-only route description as the current allowlist.
 
-Independent Next.js App Router website and read-only admin shell. Existing FastAPI owns all identities, sessions, authorization, database records and media. Expo `../frontend/` is unchanged. No database or storage SDK is included here.
+Independent Next.js App Router website and authorized admin operations. Existing FastAPI owns all identities, sessions, authorization, database records and media. Expo `../frontend/` is unchanged. No database or storage SDK is included here.
 
-## Current verification boundary
+## Historical foundation verification boundary
 
 Source implementation and dependency-free adapter tests are present. **Installation/build verification is blocked**, not complete: automatic approval review failed due to its usage limit before npm metadata could run. No dependency download or installation occurred and no package-lock was fabricated. `package.json` contains exact candidate pins; registry availability, peer compatibility and resolved lockfile still need verification through the approved npm installation. Do not deploy this unbuilt foundation.
 
@@ -48,7 +50,11 @@ No actual `.env` was copied from backend or Expo. Development defaults work for 
 | WEB_ORIGIN | Server only | Exact browser origin, development default http://localhost:19006. Must match backend trusted origin configuration. |
 | NEXT_PUBLIC_GOOGLE_WEB_CLIENT_ID | Public, bundled | Optional Google web OAuth audience matching backend GOOGLE_CLIENT_IDS. No client secret. Blank disables Google sign-in with an explanation. |
 
-Production runtime requires explicit HTTPS origins; insecure remote origins, credentials, paths and self-proxy loops fail closed. `npm.cmd start` uses production mode, so it is **not** a substitute for local HTTP `npm.cmd run dev`. A production-mode auth smoke test needs approved HTTPS origins, a correctly configured existing production/staging backend and ingress. No production configuration was made.
+Production runtime requires an explicit HTTPS `WEB_ORIGIN`. The backend defaults to HTTPS; `BACKEND_TRANSPORT=private-http` permits only the exact `BACKEND_ORIGIN=http://api:8000` on the reviewed Docker network. External HTTP origins, credentials, paths and self-proxy loops fail closed. Every server API caller generates `X-Forwarded-Proto` from `WEB_ORIGIN`; caller forwarding headers never reach the API. Browser Origin, Referer, CSRF and session cookie handling remain in place.
+
+`npm.cmd run build` creates standalone output and copies its public/static assets. `npm.cmd start` starts that artifact on `0.0.0.0:3000` (or `PORT`) in production mode. Production Compose keeps this listener internal. `npm.cmd run build:verify` copies source and installed dependencies into a fresh ignored repository `.cache` directory, excludes all environment files, and builds with fixed public configuration; it neither reads nor moves `.env.local`. Docker builds use Node 24 and exclude local environment files, dependencies and outputs through `.dockerignore`.
+
+`/health` checks the web process and runtime configuration. `/ready` additionally performs the API's read-only readiness check and returns no provider details. Caddy blocks both endpoints publicly. See `../docs/PRODUCTION_PROXY_DOCKER_READINESS.md` for architecture, startup and outstanding acceptance gates. No production deployment has been performed.
 
 For Google, the authorized JavaScript origin must match this website exactly; use the existing owned Google Cloud project/audience. Do not change production OAuth configuration merely to test localhost. This code follows the existing GIS nonce contract; no managed callback or new identity provider is introduced. No real Google/OTP action was executed during implementation.
 
@@ -93,3 +99,9 @@ Tests are isolated fixtures, never real OTPs, tokens, Atlas records or provider 
 7. Malicious Origin, CSRF omission, `Authorization` header, query tokens, unsafe routes and redirects must fail. Verify no private HTML or error response is publicly cached.
 
 Stop at Phase 1. Discovery/search/posting/moderation/CMS/finance/staff implementation requires separate Phase 2/later approval.
+
+## Current production ingress
+
+Caddy overwrites all X-LV-* and forwarding claims. A dedicated Caddy/Web token authenticates its direct TCP-client address to the Web route; a separate Web/API HMAC signs method, path, timestamp and IP. API accepts the signature only from its exact configured Web peer and uses it solely for rate-limit identity. It never changes Host, URL, scheme, cookie or authorization decisions. Keys exist only at runtime, never NEXT_PUBLIC or build args. Web needs CLIENT_IP_MODE=signed-v1, LANDVILLA_INGRESS_TOKEN and WEB_API_IP_KEY; database/storage/OTP credentials stay API-only. Missing settings fail health/API routing closed. Actual source-IP and end-to-end path acceptance are still required. No CDN forwarded chain is accepted.
+
+Implemented paths include public discovery/details/localities, account/saved/enquiries/leads, broker application/listing flows and role-checked administrative operations with private media. Refund controls and proxy routes are disabled for this release; payment records remain inspectable. Browser requests reject redirects. Contact/FAQ pages explicitly await approved business content; no details were fabricated. Native bearer ingress, real provider/browser acceptance and host directional isolation remain separate release gates.

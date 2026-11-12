@@ -75,6 +75,7 @@ class ImageSecurityEvidence(unittest.TestCase):
         self.assertEqual(scanner.gate([{"severity": "Medium"}]), "PASS")
 
     def test_file_evidence_checksum_covers_exact_bytes(self):
+        (ROOT / ".cache").mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=ROOT / ".cache") as directory, patch.object(scanner, "WORK", Path(directory)):
             target = Path(directory) / "test.json"
             record = scanner.write_evidence(target, {"safe": True})

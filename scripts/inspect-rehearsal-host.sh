@@ -1,6 +1,8 @@
 #!/bin/sh
 # Read-only inspection. No application imports, environment values or broad inspect.
 set -eu
+# Owner verified ec2-user requires sudo for the Docker socket. No group changes.
+docker() { sudo -n docker "$@"; }
 printf 'OS/architecture\n'
 uname -sm
 cat /etc/os-release
@@ -30,6 +32,6 @@ sudo -n python3 - <<'PY'
 from pathlib import Path
 names = {line.split('=', 1)[0].strip() for line in Path('/etc/landvilla/production.env').read_text().splitlines()
          if '=' in line and not line.lstrip().startswith('#')}
-for name in ('MONGO_URL','DB_NAME','S3_ENDPOINT','S3_BUCKET','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','OTP_HMAC_SECRET','IDENTITY_ENABLED'):
+for name in ('MONGO_URL','DB_NAME','STORAGE_PROVIDER','S3_ENDPOINT','S3_BUCKET','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','OTP_HMAC_SECRET','IDENTITY_ENABLED'):
     print(name + ': ' + ('PRESENT' if name in names else 'MISSING'))
 PY

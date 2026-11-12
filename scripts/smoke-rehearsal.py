@@ -72,5 +72,8 @@ def main():
 if __name__=="__main__":
     try: main()
     except Exception as error:
-        print("FAIL rehearsal smoke: "+type(error).__name__+"; no response bodies or credentials emitted")
+        # Our RuntimeError messages contain only fixed check labels and HTTP status.
+        # Network/provider exceptions remain type-only; never print bodies/URLs/OTP.
+        detail=str(error) if type(error) is RuntimeError else type(error).__name__
+        print("FAIL rehearsal smoke: "+detail+"; no response bodies or credentials emitted")
         raise SystemExit(1)

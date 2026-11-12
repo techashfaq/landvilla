@@ -95,8 +95,14 @@ def main():
             if name!="caddy" and config.get("PortBindings"): raise RuntimeError("Application published")
         checks.append("non-root/read-only/dropped capabilities/resource/port declarations effective")
         phase="TLS and synthetic browser flow"
-        caddy=run(compose+["ps","-q","caddy"])
-        run(["docker","cp",caddy+":/data/caddy/pki/authorities/local/root.crt",str(WORK/"rehearsal-ca.crt")])
+        # Read the public certificate in the container's mount namespace. docker cp
+        # failed for this tmpfs-backed fixture; never copy its CA private key.
+        public_ca=run(compose+["exec","-T","caddy","cat","/data/caddy/pki/authorities/local/root.crt"])
+        from cryptography import x509
+        certificate=x509.load_pem_x509_certificate(public_ca.encode())
+        if not certificate.extensions.get_extension_for_class(x509.BasicConstraints).value.ca:
+            raise RuntimeError("Rehearsal root certificate required")
+        (WORK/"rehearsal-ca.crt").write_text(public_ca+"\n")
         # Trust only this disposable CA for this command; no host trust-store changes.
         run(["curl","--fail","--silent","--show-error","--retry","5","--retry-delay","3","--cacert",str(WORK/"rehearsal-ca.crt"),"https://localhost:8443/"])
         checks.append("loopback real TLS with explicit disposable CA")

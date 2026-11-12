@@ -2,6 +2,8 @@
 
 Prepared configuration, not evidence of execution. Never run the production startup recipe as a rehearsal.
 
+Current EC2 restriction: no container start/stop/recreate is authorized. Operator-reported1.9GiB memory is not approved for this seven-service fixture. The owner explicitly authorized only disposable GitHub-hosted runtime execution; commands below are gated future operator steps. Docker on EC2 requires `sudo`; do not change socket permissions or group membership. Preparation now inserts one guarded synthetic city reference record so public meta/discovery checks cannot pass merely by rendering an error fallback. It creates no customer listings or production records.
+
 `deploy/compose.rehearsal.yml` uses project `landvilla-rehearsal`, separate project-scoped Mongo/TLS volumes, an owned internal IPv4 bridge and only `127.0.0.1:8443` ingress. API/Web have no published ports. Caddy uses its disposable internal CA for `localhost`; no production ACME/domain/certificate is used. No production env file is mounted. All fixture credentials are explicitly public test values and rejected by production validation where applicable.
 
 Mongo uses only `landvilla_rehearsal`; preparation initializes the disposable replica set and identity indexes/marker, not customer/demo seeds or production migration commands. Storage is a bounded in-memory S3-shaped mock for only `landvilla-property-media-rehearsal`. It is NOT evidence of real R2 authentication, privacy or permissions. Mailpit catches synthetic OTP email locally, requires authenticated STARTTLS and uses a generated disposable CA trusted by the API. It has no relay or published UI. Actual fixture image/user/volume behavior remains a Linux test gate.

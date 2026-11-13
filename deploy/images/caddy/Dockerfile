@@ -22,7 +22,9 @@ RUN mkdir /xcaddy-temp \
     --replace github.com/klauspost/compress=github.com/klauspost/compress@v1.20.3 \
     --replace golang.org/x/net=golang.org/x/net@v0.62.0 \
     && set -- /xcaddy-temp/buildenv_* && test "$#" -eq 1 && cd "$1" \
+    && sha256sum go.mod > /tmp/shipped-module-graph.sha256 \
     && go mod download all \
+    && sha256sum -c /tmp/shipped-module-graph.sha256 \
     && sha256sum go.mod go.sum > /tmp/tested-module-graph.sha256 \
     && go test -mod=readonly -count=1 -tags=nobadger,nomysql,nopgx \
         github.com/caddyserver/caddy/v2/caddyconfig/... \

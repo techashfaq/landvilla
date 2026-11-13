@@ -19,7 +19,8 @@ ENV["COMPOSE_DISABLE_ENV_FILE"]="1"
 
 
 def run(command, *, capture=True):
-    result=subprocess.run(command,cwd=ROOT,env=ENV,capture_output=capture,text=True,timeout=600,check=False)
+    result=subprocess.run(command,cwd=ROOT,env=ENV,capture_output=capture,text=True,
+                          timeout=1800 if command[:2]==["docker","build"] else 600,check=False)
     if result.returncode:
         # curl targets are fixed HTTPS localhost URLs with no credentials/query.
         # Preserve its TLS/connection diagnostic, never arbitrary command output.
@@ -36,6 +37,7 @@ def main():
     commit=run(["git","rev-parse","HEAD"])
     if commit!=os.environ["GITHUB_SHA"]: raise RuntimeError("Exact workflow commit required")
     WORK.mkdir(parents=True,exist_ok=True)
+    run([sys.executable,"scripts/verify-image-inputs.py"],capture=False)
     spec=importlib.util.spec_from_file_location("checker",ROOT/"scripts/check-rehearsal.py")
     checker=importlib.util.module_from_spec(spec)
     spec.loader.exec_module(checker)
@@ -51,7 +53,7 @@ def main():
     if len(selected)!=2: raise RuntimeError("Two collision-free runner allocations required")
     backend_subnet,ingress_subnet=selected
     manifest=json.loads((ROOT/"deploy/reviewed-base-images.json").read_text())
-    images={r["repository"]:r["repository"]+":"+r["tag"]+"@"+r["digest"] for r in manifest["images"]}
+    images={r.get("key",r["repository"]):r["repository"]+":"+r["tag"]+"@"+r["digest"] for r in manifest["images"]}
     settings={"REHEARSAL_SUBNET":str(backend_subnet),"REHEARSAL_INGRESS_SUBNET":str(ingress_subnet),
               "REHEARSAL_DYNAMIC_RANGE":str(list(backend_subnet.subnets(new_prefix=25))[1]),
               "REHEARSAL_WEB_IP":str(backend_subnet.network_address+10),"REHEARSAL_MONGO_IMAGE":images["library/mongo"],
@@ -60,7 +62,7 @@ def main():
               "compose":run(["docker","compose","version","--short"])}
     artifacts={}
     contexts={"api":"backend","web":"web","caddy":"deploy/images/caddy","mongo":"deploy/images/mongo"}
-    parents={"api":"library/python","web":"library/node","caddy":"library/caddy","mongo":"library/mongo"}
+    parents={"api":"library/python","web":"gcr.io/distroless/nodejs24-debian13","caddy":"library/caddy","mongo":"library/mongo"}
     for name,context in contexts.items():
         tag=f"landvilla-{name}:{commit}"
         run(["docker","build","--label","org.opencontainers.image.revision="+commit,
@@ -70,6 +72,9 @@ def main():
         artifacts[name]={key:metadata.get(key) for key in ("Id","Size","Os","Architecture","Created")}
         artifacts[name]["revision"]=(metadata.get("Config",{}).get("Labels") or {}).get("org.opencontainers.image.revision")
         artifacts[name]["base"]=(metadata.get("Config",{}).get("Labels") or {}).get("org.landvilla.base-image")
+        if name=="caddy":
+            artifacts[name]["upstream_core"]=(metadata.get("Config",{}).get("Labels") or {}).get("org.landvilla.caddy.core")
+            artifacts[name]["upstream_dependency_review"]=(metadata.get("Config",{}).get("Labels") or {}).get("org.landvilla.caddy.dependency-review")
         if artifacts[name]["Os"]!="linux" or artifacts[name]["Architecture"]!="amd64" or artifacts[name]["revision"]!=commit:
             raise RuntimeError("Linux source artifact mismatch")
     candidate_file=WORK/"candidate-images.json"
@@ -118,9 +123,24 @@ def main():
         checks.append("non-root/read-only/dropped capabilities/resource/port declarations effective")
         if not run(compose+["exec","-T","caddy","caddy","version"]).startswith("v2.11.9 "):
             raise RuntimeError("Supported Caddy binary changed")
+        (WORK/"caddy-build-info.txt").write_text(run(compose+["exec","-T","caddy","caddy","build-info"])+"\n")
+        caddy_container=run(compose+["ps","-q","caddy"])
+        native_caddy=WORK/"caddy-candidate"
+        run(["docker","cp",caddy_container+":/usr/bin/caddy",str(native_caddy)])
+        native_caddy.chmod(0o700)
+        ENV["CADDY_BINARY"]=str(native_caddy)
+        ENV["PYTHON_DOTENV_DISABLED"]="1"
+        ENV["PYTHONDONTWRITEBYTECODE"]="1"
+        run([sys.executable,"-m","unittest","discover","-s","tests","-p","test_*.py","-v"],capture=False)
+        checks.append("complete deployment and Caddy regression suite against exact candidate binary")
         run(compose+["exec","-T","web","node","-e",
             "const fs=require('fs'); for(const p of ['/usr/local/lib/node_modules/npm','/usr/local/bin/npm','/usr/local/bin/npx','/usr/local/bin/yarn']){if(fs.existsSync(p))process.exit(1)}"])
         run(compose+["exec","-T","api","python","-m","pip","check"])
+        run(compose+["exec","-T","api","python","-c",
+            "import bson,pymongo,ssl,socket,sqlite3,bz2,lzma,zlib,ctypes,curses,uuid; assert bson.has_c() and pymongo.has_c(); assert ssl.create_default_context().get_ca_certs(); assert socket.getaddrinfo('mongo',27017); assert sqlite3.connect(':memory:').execute('select 1').fetchone()==(1,); b=b'closure probe'; assert all(d(c(b))==b for c,d in [(zlib.compress,zlib.decompress),(bz2.compress,bz2.decompress),(lzma.compress,lzma.decompress)])"])
+        run(compose+["exec","-T","web","node","-e",
+            "const fs=require('fs'); if(!fs.existsSync('/etc/ssl/certs/ca-certificates.crt'))process.exit(1); require('node:dns').lookup('api',e=>{if(e)process.exit(1)}); require('sharp')({create:{width:2,height:2,channels:3,background:'red'}}).png().toBuffer().then(b=>{if(!b.length)process.exit(1)}).catch(()=>process.exit(1));"])
+        checks.append("Python musl C extensions, stdlib native closure, CA trust, DNS and Sharp image processing")
         runtime_versions["node"]=json.loads(run(compose+["exec","-T","web","node","-p","JSON.stringify(process.versions)"]))
         runtime_versions["python"]=run(compose+["exec","-T","api","python","-c","import platform; print(platform.python_version())"])
         runtime_versions["mongo_yaml"]=run(compose+["exec","-T","mongo","mongosh","--quiet","--nodb","--eval",

@@ -37,7 +37,7 @@ jobs:
   linux-rehearsal:
     needs: offline
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with: {persist-credentials: false}
@@ -54,6 +54,8 @@ jobs:
             .cache/linux-rehearsal/result.json
             .cache/linux-rehearsal/image-security.json
             .cache/linux-rehearsal/candidate-images.json
+            .cache/linux-rehearsal/base-manifests.json
+            .cache/linux-rehearsal/caddy-build-info.txt
             .cache/linux-rehearsal/security/
           if-no-files-found: warn
           retention-days: 90

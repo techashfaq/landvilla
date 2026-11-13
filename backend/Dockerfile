@@ -1,12 +1,35 @@
-FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
-# Debian Trixie security build (DSA-6613-1), using signed vendor repositories.
-# Keep the base distribution intact; never transplant a core library.
-RUN apt-get update && apt-get install -y --no-install-recommends zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 \
-    && rm -rf /var/lib/apt/lists/*
+# Keep the complete official Python native runtime closure. Build PyMongo's
+# C extensions for musl in a separate stage; never fall back silently to Python.
+FROM python:3.12-alpine3.24@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89 AS wheels
+WORKDIR /build
+COPY requirements-production*.txt requirements-build.txt ./
+RUN apk add --no-cache gcc musl-dev \
+    && pip install --no-cache-dir -r requirements-build.txt \
+    && pip wheel --no-cache-dir --no-build-isolation --wheel-dir=/wheels -r requirements-production.txt
+
+FROM wheels AS regression
+WORKDIR /verification/backend
+COPY requirements-production*.txt requirements-local.txt requirements-test.txt ./
+RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements-production.txt \
+    && pip install --no-cache-dir -r requirements-test.txt && pip check
+COPY *.py ./
+COPY scripts ./scripts
+COPY tests/unit ./tests/unit
+RUN --network=none PYTHON_DOTENV_DISABLED=1 PYTHONDONTWRITEBYTECODE=1 \
+    python -m unittest discover -s tests/unit -v && touch /regression-passed
+
+FROM python:3.12-alpine3.24@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89
+# Require the complete offline suite on musl; its code/tools stay in the builder.
+RUN --mount=type=bind,from=regression,source=/regression-passed,target=/regression-passed test -f /regression-passed
+# Signed package from the same Alpine branch; no transplanted core libraries.
+RUN apk add --no-cache --upgrade zlib=1.4-r0 \
+    && addgroup -g 10001 app && adduser -D -u 10001 -G app -h /home/app app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 APP_ENV=production
 WORKDIR /app
 COPY requirements-production*.txt ./
-RUN pip install --no-cache-dir -r requirements-production.txt && useradd --uid 10001 --create-home app
+RUN --mount=type=bind,from=wheels,source=/wheels,target=/wheels \
+    pip install --no-cache-dir --no-index --find-links=/wheels -r requirements-production.txt \
+    && pip check && python -c "import pymongo,bson; assert pymongo.has_c() and bson.has_c()"
 COPY --chown=app:app *.py ./
 COPY --chown=app:app scripts ./scripts
 USER app

@@ -12,6 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("image_security", ROOT / "scripts/scan-rehearsal-images.py")
 scanner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(scanner)
+input_spec = importlib.util.spec_from_file_location("image_inputs", ROOT / "scripts/verify-image-inputs.py")
+inputs = importlib.util.module_from_spec(input_spec)
+input_spec.loader.exec_module(inputs)
 IMAGE = "sha256:" + "a" * 64
 COMMIT = "b" * 40
 
@@ -82,6 +85,22 @@ class ImageSecurityEvidence(unittest.TestCase):
             self.assertEqual(record["sha256"], hashlib.sha256(target.read_bytes()).hexdigest())
             self.assertEqual(record["bytes"], len(target.read_bytes()))
             self.assertEqual(record["path"], "test.json")
+
+    def test_base_manifest_bytes_and_header_must_match_pinned_digest(self):
+        data=json.dumps({"manifests":[{"platform":{"os":"linux","architecture":"amd64"},"digest":IMAGE}]}).encode()
+        digest="sha256:"+hashlib.sha256(data).hexdigest()
+        self.assertEqual(inputs.verified_manifest(data,digest,digest),IMAGE)
+        for body,expected,reported in ((data+b" ",digest,digest),(data,IMAGE,digest),(data,digest,IMAGE)):
+            with self.subTest(body=body),self.assertRaises(ValueError):
+                inputs.verified_manifest(body,expected,reported)
+
+    def test_base_manifest_requires_unique_supported_runtime_platform(self):
+        for entries in ([],[{"platform":{"os":"linux","architecture":"arm64"},"digest":IMAGE}],
+                        [{"platform":{"os":"linux","architecture":"amd64"},"digest":IMAGE}]*2):
+            data=json.dumps({"manifests":entries}).encode()
+            digest="sha256:"+hashlib.sha256(data).hexdigest()
+            with self.subTest(entries=entries),self.assertRaises(ValueError):
+                inputs.verified_manifest(data,digest,digest)
 
 
 if __name__ == "__main__":

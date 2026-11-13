@@ -106,9 +106,9 @@ test("all server backend callers apply generated transport headers", async () =>
 
 test("Docker uses standalone Node 24, non-root listener, secret exclusions and liveness", async () => {
   const docker = await readFile(new URL("../Dockerfile", import.meta.url), "utf8");
-  assert.match(docker, /FROM node:24-trixie-slim@sha256:[a-f0-9]{64} AS runtime/);
+  assert.match(docker, /FROM gcr.io\/distroless\/nodejs24-debian13:nonroot@sha256:[a-f0-9]{64} AS runtime/);
   assert.match(docker, /HOSTNAME=0\.0\.0\.0 PORT=3000/);
-  assert.match(docker, /USER node/); assert.match(docker, /\/app\/\.next\/standalone/);
+  assert.match(docker, /USER 1000:1000/); assert.match(docker, /\/app\/\.next\/standalone/);
   assert.match(docker, /\/app\/\.next\/static/); assert.match(docker, /\/app\/public/);
   assert.match(docker, /HEALTHCHECK.*\/health/); assert.match(docker, /CMD \["node", "server\.js"\]/);
   const ignored = await readFile(new URL("../.dockerignore", import.meta.url), "utf8");

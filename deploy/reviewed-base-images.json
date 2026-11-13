@@ -1,78 +1,15 @@
 {
-  "observed_date": "2026-11-12",
+  "observed_date": "2026-11-13",
   "evidence": "Docker Hub manifest bytes SHA256 matched Docker-Content-Digest; not image runtime acceptance",
   "images": [
     {
       "repository": "library/python",
-      "tag": "3.12-slim",
-      "digest": "sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b",
+      "tag": "3.12-alpine3.24",
+      "digest": "sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89",
       "platforms": [
         {
           "architecture": "amd64",
           "os": "linux"
-        },
-        {
-          "architecture": "unknown",
-          "os": "unknown"
-        },
-        {
-          "architecture": "arm",
-          "os": "linux",
-          "variant": "v5"
-        },
-        {
-          "architecture": "unknown",
-          "os": "unknown"
-        },
-        {
-          "architecture": "arm",
-          "os": "linux",
-          "variant": "v7"
-        },
-        {
-          "architecture": "unknown",
-          "os": "unknown"
-        },
-        {
-          "architecture": "arm64",
-          "os": "linux",
-          "variant": "v8"
-        },
-        {
-          "architecture": "unknown",
-          "os": "unknown"
-        },
-        {
-          "architecture": "386",
-          "os": "linux"
-        },
-        {
-          "architecture": "unknown",
-          "os": "unknown"
-        },
-        {
-          "architecture": "ppc64le",
-          "os": "linux"
-        },
-        {
-          "architecture": "unknown",
-          "os": "unknown"
-        },
-        {
-          "architecture": "riscv64",
-          "os": "linux"
-        },
-        {
-          "architecture": "unknown",
-          "os": "unknown"
-        },
-        {
-          "architecture": "s390x",
-          "os": "linux"
-        },
-        {
-          "architecture": "unknown",
-          "os": "unknown"
         }
       ]
     },
@@ -189,6 +126,29 @@
           "os": "linux"
         }
       ]
+    },
+    {
+      "repository": "gcr.io/distroless/nodejs24-debian13",
+      "tag": "nonroot",
+      "digest": "sha256:6abfcb367ebc291572c774c1592a986be2ab26a2486f73093401327495a5962a",
+      "platforms": [
+        {
+          "architecture": "amd64",
+          "os": "linux"
+        }
+      ]
+    },
+    {
+      "repository": "library/caddy",
+      "tag": "2.11.9-builder-alpine",
+      "digest": "sha256:646fee578e680989ca5c7fd1ce6f1de574d19fd71ef2221810cc0510a9f40c86",
+      "platforms": [
+        {
+          "architecture": "amd64",
+          "os": "linux"
+        }
+      ],
+      "key": "caddy-builder"
     }
   ]
 }

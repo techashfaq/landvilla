@@ -1,6 +1,7 @@
 # Keep the complete official Python native runtime closure. Build PyMongo's
 # C extensions for musl in a separate stage; never fall back silently to Python.
 FROM python:3.12-alpine3.24@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89 AS wheels
+RUN apk add --no-cache --upgrade zlib=1.4-r0 krb5-libs=1.22.3-r0
 WORKDIR /build
 COPY requirements-production*.txt requirements-build.txt ./
 RUN apk add --no-cache gcc musl-dev \
@@ -22,7 +23,7 @@ FROM python:3.12-alpine3.24@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e73
 # Require the complete offline suite on musl; its code/tools stay in the builder.
 RUN --mount=type=bind,from=regression,source=/regression-passed,target=/regression-passed test -f /regression-passed
 # Signed package from the same Alpine branch; no transplanted core libraries.
-RUN apk add --no-cache --upgrade zlib=1.4-r0 \
+RUN apk add --no-cache --upgrade zlib=1.4-r0 krb5-libs=1.22.3-r0 \
     && addgroup -g 10001 app && adduser -D -u 10001 -G app -h /home/app app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 APP_ENV=production
 WORKDIR /app

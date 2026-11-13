@@ -14,7 +14,8 @@ import time
 
 ROOT=Path(__file__).resolve().parents[1]
 WORK=ROOT/".cache/linux-rehearsal"
-ENV={k:v for k,v in os.environ.items() if k in ("PATH","HOME","LANG")}
+ENV={k:v for k,v in os.environ.items() if k in (
+    "PATH","HOME","LANG","GITHUB_ACTIONS","RUNNER_ENVIRONMENT","GITHUB_SHA")}
 ENV["COMPOSE_DISABLE_ENV_FILE"]="1"
 
 

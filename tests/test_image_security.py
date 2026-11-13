@@ -102,6 +102,17 @@ class ImageSecurityEvidence(unittest.TestCase):
             with self.subTest(entries=entries),self.assertRaises(ValueError):
                 inputs.verified_manifest(data,digest,digest)
 
+    def test_rehearsal_child_receives_runner_identity_without_secrets(self):
+        rehearsal_spec=importlib.util.spec_from_file_location("rehearsal_env",ROOT/"scripts/rehearse-linux-ci.py")
+        rehearsal=importlib.util.module_from_spec(rehearsal_spec)
+        supplied={"PATH":"fixture-path","GITHUB_ACTIONS":"true","RUNNER_ENVIRONMENT":"github-hosted",
+                  "GITHUB_SHA":COMMIT,"PRODUCTION_SECRET":"fixture-not-a-real-secret"}
+        with patch.dict("os.environ",supplied,clear=True):
+            rehearsal_spec.loader.exec_module(rehearsal)
+        for name in ("GITHUB_ACTIONS","RUNNER_ENVIRONMENT","GITHUB_SHA"):
+            self.assertEqual(rehearsal.ENV[name],supplied[name])
+        self.assertNotIn("PRODUCTION_SECRET",rehearsal.ENV)
+
 
 if __name__ == "__main__":
     unittest.main()

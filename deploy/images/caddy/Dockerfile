@@ -13,11 +13,21 @@ RUN git init /src && cd /src \
     && go test -count=1 ./caddyconfig/... ./modules/caddyhttp/... ./modules/caddytls/...
 # xcaddy is upstream's custom builder. Retain the stable Caddy module version
 # and standard modules; no direct go-jose major replacement or custom plugins.
-RUN xcaddy build v2.11.9 --output /usr/bin/caddy \
+RUN mkdir /xcaddy-temp \
+    && XCADDY_SKIP_CLEANUP=1 TMPDIR=/xcaddy-temp xcaddy build v2.11.9 --output /usr/bin/caddy \
     --replace github.com/smallstep/certificates=github.com/smallstep/certificates@v0.30.3-0.20261105213751-6d5a251fbe01 \
     --replace go.step.sm/crypto=go.step.sm/crypto@v0.92.0 \
     --replace github.com/klauspost/compress=github.com/klauspost/compress@v1.20.3 \
-    --replace golang.org/x/net=golang.org/x/net@v0.62.0
+    --replace golang.org/x/net=golang.org/x/net@v0.62.0 \
+    && set -- /xcaddy-temp/buildenv_* && test "$#" -eq 1 && cd "$1" \
+    && go mod download all \
+    && sha256sum go.mod go.sum > /tmp/tested-module-graph.sha256 \
+    && go test -mod=readonly -count=1 -tags=nobadger,nomysql,nopgx \
+        github.com/caddyserver/caddy/v2/caddyconfig/... \
+        github.com/caddyserver/caddy/v2/modules/caddyhttp/... \
+        github.com/caddyserver/caddy/v2/modules/caddytls/... \
+    && sha256sum -c /tmp/tested-module-graph.sha256 \
+    && go list -m all && go version -m /usr/bin/caddy
 
 # Security candidate only. Production Compose/Caddy settings are unchanged.
 FROM caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee

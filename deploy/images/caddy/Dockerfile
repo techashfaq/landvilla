@@ -1,7 +1,9 @@
 # Custom stable-core candidate using the coherent dependency updates accepted
 # upstream in PR8368. Do not pull the 125 unrelated master commits into runtime.
 FROM caddy:2.11.9-builder-alpine@sha256:646fee578e680989ca5c7fd1ce6f1de574d19fd71ef2221810cc0510a9f40c86 AS builder
-ENV CGO_ENABLED=0 GOTOOLCHAIN=local
+# xcaddy's official builder enables effective file capabilities by default.
+# Rehearsal uses unprivileged ports and drops ALL capabilities; keep both.
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local XCADDY_SETCAP=0
 RUN git init /src && cd /src \
     && git remote add origin https://github.com/caddyserver/caddy.git \
     && git fetch --depth=1 origin 0d98caea58f794f88e709b1bef2880996a471bca \
@@ -33,6 +35,8 @@ RUN mkdir /xcaddy-temp \
 FROM caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
 RUN apk add --no-cache --upgrade zlib=1.4-r0
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+RUN if [ -n "$(getcap /usr/bin/caddy)" ]; then setcap -r /usr/bin/caddy; fi \
+    && test -z "$(getcap /usr/bin/caddy)"
 LABEL org.landvilla.caddy.core=0d98caea58f794f88e709b1bef2880996a471bca \
       org.landvilla.caddy.dependency-review=31f9f0cb99491fdd1a27f82793b78d216c5b2a76
 USER 10001:10001

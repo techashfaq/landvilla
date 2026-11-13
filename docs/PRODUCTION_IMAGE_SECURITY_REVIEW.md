@@ -1,6 +1,6 @@
 # Image security remediation — BLOCKED
 
-Updated 13 November 2026 (India). Public advisory and registry observations below were retrieved on 12 November 2026 UTC. The final corrective candidate completed Linux builds and runtime rehearsal, but **its unsuppressed image gate failed with 120 High / 0 Critical matches**. Both rehearsal fixtures have zero High/Critical matches. Exact source, images and evidence are recorded below. This document does not accept the candidate or authorize production deployment.
+Current result,13November2026: **15 High /0 Critical; runtime PASS; security acceptance FAIL** at source `197f5098720cd7c3adcbaec8590d94cc9164e65b`, CI43375237826. See the final residual candidate section at the end for current evidence. Earlier sections preserve the historical122/4 and120/0 campaigns and are not current acceptance. No deployment is authorized.
 
 ## Baseline evidence and its limits
 
@@ -260,4 +260,90 @@ Node Alpine was evaluated but not selected: the official Node project classifies
 
 Caddy latest stable remains2.11.9. UpstreamPR8368 merged coherent updates to certificates/crypto (removing go-jose/v3), x/net0.62.0 and compress1.20.3. The full master commit includes125commits beyond stable, so the candidate retains exact stable core0d98caea58f794f88e709b1bef2880996a471bca and uses upstream xcaddy with the compatible dependency versions. This is a downstream custom candidate, not a newly released official Caddy version. No forced go-jose major replacement or new plugin is introduced. Upstream configuration/HTTP/TLS tests plus LANDVILLA's full Caddy/TLS suite must pass against the actual binary. [Upstream review](https://github.com/caddyserver/caddy/pull/8368), [custom builder](https://github.com/caddyserver/xcaddy#custom-builds).
 
-New CI records verified manifest bytes and exact amd64 digests for all seven build/runtime inputs, the custom Caddy build-info, full Syft/Grype provenance and runtime/native-closure checks. Production Compose/Caddy settings remain unchanged. Candidate Linux results are PENDING; no security or deployment acceptance is claimed.
+New CI records verified manifest bytes and exact amd64 digests for all seven build/runtime inputs, the custom Caddy build-info, full Syft/Grype provenance and runtime/native-closure checks. Production Compose/Caddy settings remain unchanged. That preparation was subsequently tested; see the final residual candidate section below. No production acceptance is claimed.
+
+## Final residual candidate — 13 November 2026
+
+**REHEARSAL PASSED — PRODUCTION RELEASE BLOCKED. Image security acceptance: FAIL.** Exact tested source `197f5098720cd7c3adcbaec8590d94cc9164e65b`, [CI43375237826](https://github.com/techashfaq/landvilla/actions/runs/43375237826). Four Linux images built; the pinned Mail fixture was pulled and tested. All13 runtime check groups passed. The unsuppressed scan reports **172 total matches:15 High /0 Critical**: API4, Web11, Caddy0, Mongo0, Mail0 High. No finding was suppressed or waived.
+
+Compared with the120-High starting scan,108 original package/advisory matches are no longer reported and12 carry forward (including3 renamed SQLite matches). Three new matches remain: SQLite CLI advisory119586 and2 libgomp1 matches. Net reduction is105 High matches (87.5%). The intermediate candidate had24 High; the supported Alpine krb5-libs1.22.3-r0 update removed all9 Kerberos matches. Counts are package/advisory matches, not proven exploits or unique CVEs.
+
+Verified application/deployment tests: **383 distinct tests** (211 backend +117 Web +55 deployment/evidence); CI also reran the211 backend tests inside Alpine with network disabled. Caddy upstream configuration/HTTP/TLS tests passed in18 packages in each of two contexts (36 package executions; individual Go test-case count was not recorded). The second context is the retained xcaddy build module with matching build tags, unchanged go.mod before/after preparation and readonly tests. Lint, TypeScript, production build, pip check and Python compilation passed. No existing test was skipped or weakened.
+
+### Final image and base identities
+
+Image IDs below identify disposable local Linux amd64 artifacts, not published registry digests. No production image was published. Package payload locations and uncompressed layer IDs are in the complete SBOM/provenance and [RESIDUAL_IMAGE_FINDINGS.json](RESIDUAL_IMAGE_FINDINGS.json); package-database layers are not substituted for payload ownership.
+
+| Image | All matches | High | Critical | Exact image ID |
+|---|---:|---:|---:|---|
+| API | 28 | 4 | 0 | `sha256:802f72ea1f82ea00a4e23830cc1fa552b8c24fb49618bc6b6f9959a4327078df` |
+| WEB | 53 | 11 | 0 | `sha256:13d1b20a8859b48f870fb2b42064ab40c22b1f95fd14742c58c4557a93393116` |
+| CADDY | 4 | 0 | 0 | `sha256:42a44e1886aabc6192f3e0d5197ded1d7f0ee776fde8819c21670354a9b0a3ce` |
+| MONGO | 82 | 0 | 0 | `sha256:81657a5eeb435a55b0935e7a1ed8ad7fd0a20bbd3af50c4255a33bd62044d9d0` |
+| MAIL | 5 | 0 | 0 | `sha256:cfdafb05e489fd0a93f82045a641610317dbaa7ea1da3d7a847cdb82f1001937` |
+
+All seven manifest bodies were hashed and matched the pinned registry digest and Docker-Content-Digest header; unique Linux amd64 selection was verified. This proves content identity over HTTPS, not a cosign signature verification.
+
+| Input | Manifest/index digest | Selected Linux amd64 manifest |
+|---|---|---|
+| `library/python:3.12-alpine3.24` | `sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89` | `sha256:a61cbd76a882645de7f91423329fe43a67eed60d7da24f9e5331414bb3618b20` |
+| `library/node:24-trixie-slim` | `sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0` | `sha256:60587baa7c895cf438d44f691e4ac8248b36c13b26be77332f874bebb3a64201` |
+| `library/caddy:2.11.9-alpine` | `sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee` | `sha256:fc9cbc100585871d18d4e451cca7021785c90a7006087427ae5ceb3e4efe6424` |
+| `library/mongo:8.0` | `sha256:d97fea17ccb8d004cd137be8dab54d70d0df11be69c9f422aefe4484c8414ab7` | `sha256:9b73c38e39783bd21335f603a9f08be60fe385f5c28933ea32bb4a9fa1fd6d23` |
+| `axllent/mailpit:v1.33.1` | `sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce` | `sha256:c95e8356f55b65520e8b7fd4d74d3e2d06e4a83513f639e316b1e592fbd52646` |
+| `gcr.io/distroless/nodejs24-debian13:nonroot` | `sha256:6abfcb367ebc291572c774c1592a986be2ab26a2486f73093401327495a5962a` | `sha256:d4b8c34560df58c821ebda89a2897d7d183220c0debaf474a2b67a6c7cc22064` |
+| `library/caddy:2.11.9-builder-alpine` | `sha256:646fee578e680989ca5c7fd1ce6f1de574d19fd71ef2221810cc0510a9f40c86` | `sha256:29f98311e17e583811355fa62cc080f71d6f3aa19cf09a9e1494d30579f8bebf` |
+
+Runtime: Python3.12.16, Node24.22.3, Node-bundled SQLite3.54.1/Undici7.30.2, Mongo helper js-yaml3.15.2. API128,213,011 bytes; Web194,409,548 bytes. API uses musl and retains the complete vendor native closure; Web uses glibc distroless with CA/DNS/native libraries intact. Build/test tools remain in intermediate stages. Public assets/static output, native PyMongo/BSON extensions, Python compression/SQLite/ctypes/curses, CA trust, DNS and Sharp PNG processing all passed runtime probes.
+
+Caddy actual binary/SBOM confirms go-jose/v4 4.1.9 (v3 absent), compress1.20.3, x/net0.62.0, crypto0.92.0 and certificates0.30.3-0.20261105213751-6d5a251fbe01. It retains stable Caddy2.11.9 core. This is an upstream-reviewed dependency migration in a downstream custom build, not a new official stable release. Operational ownership and future promotion remain separate decisions. The default builder's effective file capability was disabled/removed; execution passed as UID10001 with dropped capabilities and no-new-privileges. Container restrictions were not relaxed.
+
+### Exact unresolved High inventory and residual decision
+
+| Image/package | Installed | Remaining High advisories |
+|---|---|---|
+| API sqlite-libs |3.53.4-r0|CVE-2026-119373, CVE-2026-119374, CVE-2026-119379, CVE-2026-119586|
+| Web gcc-14-base |14.2.0-19|CVE-2026-95619, CVE-2026-102010|
+| Web libgcc-s1 |14.2.0-19|CVE-2026-95619, CVE-2026-102010|
+| Web libgomp1 |14.2.0-19|CVE-2026-95619, CVE-2026-102010|
+| Web libstdc++6 |14.2.0-19|CVE-2026-95619, CVE-2026-102010|
+| Web libc6 |2.41-12+deb13u4|CVE-2026-19499, CVE-2026-5435, CVE-2026-84243|
+
+The15 matches represent9 advisory IDs. All remain blocking. No attack reachability was demonstrated. Runtime presence is confirmed; source-package matches do not prove each binary contains the vulnerable function.
+
+- SQLite119373: FTS5 negative-rowid prefix MATCH overflow;119374: crafted FTS5 secure-delete index corruption;119379: crafted session changeset overflow. Alpine's3.24 recipe enables FTS5/session; upstream3.54.0 fixes these, but stable3.24 still packages3.53.4-r0. Classification: **vendor-unfixed and unresolved; application reachability not demonstrated**. MongoDB use does not prove absence of every native/transitive SQLite path. [Stable recipe](https://raw.githubusercontent.com/alpinelinux/aports/3.24-stable/main/sqlite/APKBUILD), [CNA119373](https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2026/119xxx/CVE-2026-119373.json), [CNA119374](https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2026/119xxx/CVE-2026-119374.json), [CNA119379](https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2026/119xxx/CVE-2026-119379.json).
+- SQLite119586 requires crafted recovery output piped into the SQLite CLI, then dot-command execution. No CLI package is cataloged; library/Python extension presence alone does not establish this path. Classification: **reachability not demonstrated**, pending independent component-absence proof; no false-positive waiver. [CNA119586](https://cveawg.mitre.org/api/cve/CVE-2026-119586).
+- GCC95619 affects aligned operator-new size arithmetic;102010 affects native priority-queue erase_if. These require affected native call paths and attacker-influenced inputs. GCC14 fixes exist in14.4.0-3 unstable, but no supported Trixie backport was established. Native Node/Sharp library closure must not be removed. [95619](https://security-tracker.debian.org/tracker/CVE-2026-95619), [102010](https://security-tracker.debian.org/tracker/CVE-2026-102010).
+- glibc19499 requires affected strfmon formatting;5435 concerns deprecated DNS pretty-printer handling of crafted data;84243 requires attacker-controlled LANGUAGE/locale plus a readable crafted catalog and gettext call. No browser-to-native exploit chain was established. Stable Debian remains unpatched for these records. Classification: **vendor-unfixed and unresolved**, not accepted harmlessness. [19499](https://security-tracker.debian.org/tracker/CVE-2026-19499), [5435](https://security-tracker.debian.org/tracker/CVE-2026-5435), [84243](https://security-tracker.debian.org/tracker/CVE-2026-84243).
+
+**Required decision:** keep production security blocked. Await supported Alpine/Debian backports or qualify a maintained complete runtime/backport with ABI, native-closure, full rehearsal and unsuppressed scan evidence. Do not import unstable/edge core libraries, remove required libraries, force a Node Experimental musl build, or approve a release based only on unproven reachability. An independent component proof may clarify a source-package match but does not authorize scanner exclusions or waive other findings. Replacing Caddy was unnecessary because the custom upstream-reviewed dependency migration cleared its High gate and passed equivalent tests.
+
+### Evidence and executed commands
+
+Artifact14014147791,90-day retention: [download](https://github.com/techashfaq/landvilla/actions/runs/43375237826/artifacts/14014147791). Archive SHA256 `2205de149cc5a9fabb88360d2b64b3ecac87a721d937ca842307052ffc9cfa92`. Downloaded to `.cache/master-readiness/ci-43375237826/`; all15 report hashes below recomputed and matched. Source/image binding and base manifests were checked. Preserve reports in an approved archive before expiry. Raw lower-severity findings remain retained.
+
+| Evidence | SHA256 |
+|---|---|
+| `security/api.syft.json` | `a837bc6f38e98440335c58af02f8b9fb84bf6b3adb000bddc35b58c27159b14f` |
+| `security/api.grype.json` | `c1a67883ab50c185da1afe8f046faea52dedb094f906692fd330be1592fb2d6a` |
+| `security/api.provenance.json` | `e6ba060c0e931964be6af998a1212d230a56d1dc72252bb81a6d6a8ddbbdf0c4` |
+| `security/web.syft.json` | `b8fc9ba4c24df875cfe0e92ac2c1399071d43aec5b491d312057d99e87a44ca1` |
+| `security/web.grype.json` | `7880ba13320c94aa14c2a47a97d09e32b8f4747f5b7a59834dfa2d9b44485a47` |
+| `security/web.provenance.json` | `c9a1cc7823b1dd59abadfee397eda3d1a381853541fdb53ac48ab58417e369c7` |
+| `security/caddy.syft.json` | `80e47360c5b09677a76e7bcc3449463ac8f544f73ed1e45d900ce8831fdefc64` |
+| `security/caddy.grype.json` | `7885abcf62f35f3c0cb2a6e83be4d3d6d9db709ba3358b0f9c6c53d3a757ef1c` |
+| `security/caddy.provenance.json` | `990c76b3dcc770dc31bb3de4eb7c8d2478350043bcd8813cbf833f688d4b5217` |
+| `security/mongo.syft.json` | `c43f1afa3afe7ca461c8f4c76dfb424be6a9de75bdec2abee9cf3854b69728dc` |
+| `security/mongo.grype.json` | `ca74cc9e173dbbe0092853cb216b3d6118c030d4afadd897cf092858cb9c31c3` |
+| `security/mongo.provenance.json` | `d25b90f99936ad3178fe83534baafa076f4cccd7981f2760348b58cceca2fa2f` |
+| `security/mail.syft.json` | `bc26139f4550038e0e4533e645acf58278692c4f6b98ea4aca6ba2c97e84f908` |
+| `security/mail.grype.json` | `f8194d6d163c71e3d147e1b222a422bb756003a20279f0bf1f41cd8a7805d168` |
+| `security/mail.provenance.json` | `dcc3648f37f7df4b7c9654139ec7a81d1e4fa435ea8b1caa746735532b5dc072` |
+
+Executed in disposable GitHub Linux: `python scripts/rehearse-linux-ci.py`; `python scripts/scan-rehearsal-images.py --result .cache/linux-rehearsal/result.json`; backend unittest discovery, pip check, Web npm test/lint/typecheck/build,55 deployment tests against the exact copied Caddy binary. The scanner uses checksum-verified Grype0.121.3 and Syft1.57.1, explicit empty configuration and no ignored matches. All five scans used the same vulnerability database built2026-11-12T06:20:58Z; this is a dated feed observation, not proof against later disclosures. Linux log SHA256 `cba882d205af502273bf7174c069f33e5b322f514e6b27b8bf0d1ccb198e9195`; offline log SHA256 `93213907c997cfce9ea3162564e5d395d0aaa3a35ffa44882fd0de117b37dcbf`.
+
+Local command: `.cache/dependency-independent-verification/run-20261112-01/venv/Scripts/python.exe scripts/verify-readiness.py --python F:/projects/landvilla/.cache/dependency-independent-verification/run-20261112-01/venv/Scripts/python.exe --compose F:/projects/landvilla/.cache/phase2-security-review/compose/docker-compose.exe --caddy F:/projects/landvilla/.cache/caddy-validation/caddy.exe --stage STAGE`, separately for backend,web,deploy,build,syntax. Local383 tests PASS; final deployment55PASS16.609s; buildPASS88.359s; final compilationPASS2.375s; pip check/lint/typesPASS. Local artifacts are under `.cache/master-readiness/`; they are not production credentials or committed build output.
+
+Attempt history:43371089011 stopped before builds because sanitized child environment omitted non-secret runner identity; corrected with regression coverage.43371806526 built all images and passed211 musl tests but Caddy startup failed.43372193950 additionally passed the exact Caddy graph tests but reproduced startup failure. The inherited effective file capability was removed without changing container privileges. Pending superseded runs43372759278/43372859957 were cancelled by workflow concurrency, not recorded as tests.43373185420 passed all13 runtime groups and reported24High/0Critical.43375237826 verified the same-branch Kerberos patch and final15High/0Critical.
+
+No EC2/provider connection, production environment/settings change, image publication, deployment, firewall/DNS mutation or production data operation occurred. Ordinary bridges are not directional isolation. GitHub Engine28.0.4/Compose2.38.2 acceptance is not target EC2 acceptance; same-artifact restart is not previous-release rollback. Existing external gates remain open.

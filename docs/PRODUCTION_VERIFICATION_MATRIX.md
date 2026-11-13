@@ -102,6 +102,31 @@ CI attempt history for this campaign: run43286352072 failed before image builds 
 
 Final source `c52e8f21f882abb2e21b013394b2bc9869956bfc`, artifactID13974974795. CI test totals:211 backend,117Web,6scanner integrity; lint/type/build/pip check PASS. Local380 total includes52deployment/evidence tests. Exact images and all15 checksums are in PRODUCTION_IMAGE_SECURITY_REVIEW.md. Reports added after this source commit do not alter tested application/build code; no production release artifact is published.
 
-## Residual campaign verification — pending exact CI identity
+## Residual campaign preparation — historical local evidence
 
 Starting sourcea4736dfa875d5b5bbfbeb9049da786950caee299; baseline120High/0Critical. Local backend211/Web117 tests and lint/types passed. Deployment54 tests PASS, including two new manifest integrity cases; total382 local tests. Standalone production build PASS88.359s, compilation PASS5.375s, pip check PASS. New Linux campaign must run the backend suite on musl, upstream Caddy configuration/HTTP/TLS tests, all LANDVILLA deployment tests against the custom binary, native C-extension/CA/DNS/Sharp probes, complete TLS/auth/media/recovery rehearsal and unsuppressed scans. No old pass is transferred to these new images.
+
+## Final residual candidate — 13 November 2026
+
+**REHEARSAL PASSED — PRODUCTION RELEASE BLOCKED. Image security acceptance: FAIL.** Exact tested source `197f5098720cd7c3adcbaec8590d94cc9164e65b`, [CI43375237826](https://github.com/techashfaq/landvilla/actions/runs/43375237826). Four Linux images built; the pinned Mail fixture was pulled and tested. All13 runtime check groups passed. The unsuppressed scan reports **172 total matches:15 High /0 Critical**: API4, Web11, Caddy0, Mongo0, Mail0 High. No finding was suppressed or waived.
+
+Compared with the120-High starting scan,108 original package/advisory matches are no longer reported and12 carry forward (including3 renamed SQLite matches). Three new matches remain: SQLite CLI advisory119586 and2 libgomp1 matches. Net reduction is105 High matches (87.5%). The intermediate candidate had24 High; the supported Alpine krb5-libs1.22.3-r0 update removed all9 Kerberos matches. Counts are package/advisory matches, not proven exploits or unique CVEs.
+
+Verified application/deployment tests: **383 distinct tests** (211 backend +117 Web +55 deployment/evidence); CI also reran the211 backend tests inside Alpine with network disabled. Caddy upstream configuration/HTTP/TLS tests passed in18 packages in each of two contexts (36 package executions; individual Go test-case count was not recorded). The second context is the retained xcaddy build module with matching build tags, unchanged go.mod before/after preparation and readonly tests. Lint, TypeScript, production build, pip check and Python compilation passed. No existing test was skipped or weakened.
+
+| Check/command | Environment | Expected | Actual | Status | Evidence |
+|---|---|---|---|---|---|
+| unittest backend discovery | GitHub Python3.12/glibc |211 pass|211 pass|PASS|offline.log|
+| Backend image build regression | Alpine3.24/Python3.12.16; test network disabled |211 pass/native extensions|211 pass; PyMongo/BSON C extensions present|PASS|linux.log|
+| npm test/lint/typecheck/build | Node24 GitHub and local |117 pass/no warnings/type errors/build complete|117 pass,0skipped; all checks passed|PASS|offline.log/local logs|
+| unittest deployment discovery | GitHub, exact custom Caddy binary |55 pass|55 pass4.030s|PASS|linux.log|
+| Caddy go test both module contexts | Official pinned builder Go1.27.4 |HTTP/TLS/config tests and graph consistency|18 package results per context,36 executions; checksums unchanged|PASS|linux.log/Caddy build-info|
+| verify-image-inputs.py | GitHub/public registries |7 exact manifests|7 hashes/amd64 targets verified|PASS|base-manifests.json|
+| rehearse-linux-ci.py | Disposable Linux amd64 |All13 groups|13 passed; TLS/auth/media/outage/restart/cleanup|PASS|result.json|
+| scan-rehearsal-images.py | Exact same5 runtime images |0High/Critical|15High/0Critical,172 total|FAIL|image-security.json +15 raw reports|
+| Evidence integrity | Local downloaded artifact |15 checksums/source/image consistency|15 matched|PASS|PRODUCTION_IMAGE_SECURITY_REVIEW.md|
+| Python compilation/pip check | Existing local isolated environment and CI |No errors|Passed|PASS|local logs/offline.log|
+| Production settings preservation | Git diff vs a4736dfa |No settings/isolation-plan change|No differences|PASS|Git history|
+| EC2/runtime/provider/public HTTPS/previous-release rollback |Production|Approved measured acceptance|Not executed; prohibited/unavailable|BLOCKED|PRODUCTION_EXTERNAL_BLOCKERS.md|
+
+Earlier382/380/344 counts above are historical. Current distinct local/CI suite coverage is383, with repeated musl/backend and upstream Go package executions reported separately. The9 scanner/manifest tests in the offline job are included in the55 deployment total, not counted twice. No scanner exclusions, ignore-unfixed, risk waiver or production credentials were used.

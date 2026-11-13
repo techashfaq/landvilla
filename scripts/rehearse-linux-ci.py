@@ -8,6 +8,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -78,6 +79,10 @@ def main():
             artifacts[name]["upstream_dependency_review"]=(metadata.get("Config",{}).get("Labels") or {}).get("org.landvilla.caddy.dependency-review")
         if artifacts[name]["Os"]!="linux" or artifacts[name]["Architecture"]!="amd64" or artifacts[name]["revision"]!=commit:
             raise RuntimeError("Linux source artifact mismatch")
+        if name=="caddy":
+            run(["docker","run","--rm","--network","none","--read-only","--cap-drop","ALL",
+                 "--security-opt","no-new-privileges:true","--user","10001:10001",
+                 settings["REHEARSAL_CADDY_IMAGE"],"caddy","version"],capture=False)
     candidate_file=WORK/"candidate-images.json"
     candidate_file.write_text(json.dumps(artifacts,indent=2)+"\n")
     env_file=WORK/"rehearsal.env"
@@ -191,6 +196,15 @@ def main():
                 if container:
                     state=run(["docker","inspect","--format",'{{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}{{if .State.Health}} health={{.State.Health.Status}}{{end}}',container])
                     print(name+": "+state,flush=True)
+                    if name=="caddy":
+                        # Only this credential-free disposable ingress startup log.
+                        # Never inspect application logs, environment or request data.
+                        log=subprocess.run(["docker","logs","--tail","25",container],cwd=ROOT,env=ENV,
+                                           capture_output=True,text=True,timeout=15)
+                        diagnostic=log.stdout+log.stderr
+                        diagnostic=re.sub(r"-----BEGIN [^-]+-----.*?-----END [^-]+-----","[redacted PEM]",diagnostic,flags=re.S)
+                        diagnostic=re.sub(r"[a-fA-F0-9]{32,}","[redacted identifier]",diagnostic)
+                        print("Disposable Caddy startup: "+diagnostic[:8000],flush=True)
             except Exception: print(name+": diagnostic unavailable",flush=True)
         raise
     finally:
